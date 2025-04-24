@@ -12,11 +12,10 @@ from telegram.ext import (
     ContextTypes, MessageHandler, filters
 )
 
-TOKEN = os.getenv("TOKEN", "7705231017:AAG5L6HyQFcj7I4vlTHynU2wG0hbMOuhzSA")  # 推荐从环境变量读取
+TOKEN = os.getenv("TOKEN", "7705231017:AAG5L6HyQFcj7I4vlTHynU2wG0hbMOuhzSA")
 WEBHOOK_URL = "https://banlogger-bot.onrender.com"
 EXCEL_FILE = "ban_records.xlsx"
 
-# 初始化 Excel 文件
 def init_excel():
     if not os.path.exists(EXCEL_FILE):
         wb = openpyxl.Workbook()
@@ -246,9 +245,8 @@ async def download_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
             caption="📄 这是封禁记录的Excel文件。"
         )
 
-# FastAPI 实例
 app = FastAPI()
-bot_app = None  # Telegram 应用实例
+bot_app = None
 
 @app.on_event("startup")
 async def startup():
@@ -266,8 +264,8 @@ async def startup():
     await bot_app.bot.set_webhook(WEBHOOK_URL)
     print("Webhook 已设置")
 
-@app.post(WEBHOOK_PATH)
-async def process_update(request: Request):
+@app.post("/")
+async def root_webhook(request: Request):
     update_data = await request.json()
     update = Update.de_json(update_data, bot_app.bot)
     await bot_app.process_update(update)
