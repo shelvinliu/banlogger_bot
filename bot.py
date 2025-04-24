@@ -4,6 +4,7 @@ import pytz
 import asyncio
 import openpyxl
 from datetime import datetime, timedelta
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatPermissions
@@ -14,8 +15,10 @@ from telegram.ext import (
 
 TOKEN = os.getenv("TOKEN", "7705231017:AAG5L6HyQFcj7I4vlTHynU2wG0hbMOuhzSA")
 WEBHOOK_URL = "https://banlogger-bot.onrender.com"
+WEBHOOK_PATH = "/"
 EXCEL_FILE = "ban_records.xlsx"
 
+# 初始化 Excel 文件
 def init_excel():
     if not os.path.exists(EXCEL_FILE):
         wb = openpyxl.Workbook()
@@ -245,11 +248,11 @@ async def download_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
             caption="📄 这是封禁记录的Excel文件。"
         )
 
-app = FastAPI()
+# FastAPI 实例 + lifespan 处理
 bot_app = None
 
-@app.on_event("startup")
-async def startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     global bot_app
     init_excel()
     bot_app = ApplicationBuilder().token(TOKEN).build()
@@ -262,10 +265,13 @@ async def startup():
     bot_app.add_handler(CommandHandler("Unmute", unmute_command))
 
     await bot_app.bot.set_webhook(WEBHOOK_URL)
-    print("Webhook 已设置")
+    print("✅ Webhook 已设置")
+    yield
 
-@app.post("/")
-async def root_webhook(request: Request):
+app = FastAPI(lifespan=lifespan)
+
+@app.post(WEBHOOK_PATH)
+async def process_update(request: Request):
     update_data = await request.json()
     update = Update.de_json(update_data, bot_app.bot)
     await bot_app.process_update(update)
