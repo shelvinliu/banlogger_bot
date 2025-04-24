@@ -14,7 +14,7 @@ from telegram.ext import (
 
 TOKEN = os.getenv("TOKEN", "7705231017:AAG5L6HyQFcj7I4vlTHynU2wG0hbMOuhzSA")  # 推荐从环境变量读取
 WEBHOOK_PATH = "/telegram"
-WEBHOOK_URL = f"https://your-app-name.onrender.com{WEBHOOK_PATH}"  # 替换成你自己的 URL
+WEBHOOK_URL = f"https://banlogger-bot.onrender.com{WEBHOOK_PATH}"  # 替换成你自己的 URL
 
 EXCEL_FILE = "ban_records.xlsx"
 
