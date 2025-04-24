@@ -3,7 +3,7 @@ services:
     name: banlogger_bot
     env: python
     buildCommand: "pip install -r requirements.txt"
-    startCommand: "python bot.py --host 0.0.0.0 --port 10000"
+    startCommand: "python bot.py --host 13.228.225.19 --port 10000"
     envVars:
       - key: TOKEN
         value: "7705231017:AAG5L6HyQFcj7I4vlTHynU2wG0hbMOuhzSA"
