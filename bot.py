@@ -354,12 +354,8 @@ async def lifespan(app: FastAPI):
     BanManager.init_excel()
     
     # 创建机器人实例
-    bot_app = (
-        ApplicationBuilder()
-        .token(TOKEN)
-        .build()
-    )
-    
+    bot_app = Application.builder().token(TOKEN).build()
+
     # 注册处理器
     handlers = [
         CommandHandler("f", kick_handler),
@@ -389,6 +385,7 @@ async def lifespan(app: FastAPI):
     # 清理
     if bot_app:
         await bot_app.shutdown()
+
 
 app = FastAPI(lifespan=lifespan)
 
