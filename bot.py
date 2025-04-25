@@ -353,7 +353,7 @@ async def lifespan(app: FastAPI):
     
     BanManager.init_excel()
     
-    # 创建机器人实例
+    # 确保 Application 实例正确初始化
     bot_app = Application.builder().token(TOKEN).build()
 
     # 注册处理器
@@ -369,7 +369,7 @@ async def lifespan(app: FastAPI):
     for handler in handlers:
         bot_app.add_handler(handler)
     
-    # 设置Webhook
+    # 设置 Webhook
     if WEBHOOK_URL:
         await bot_app.bot.delete_webhook(drop_pending_updates=True)
         await bot_app.bot.set_webhook(
