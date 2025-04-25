@@ -33,12 +33,11 @@ class BanManager:
             wb = openpyxl.Workbook()
             ws = wb.active
             ws.title = "BanRecords"
-            ws.append(["时间", "群名", "被封用户ID", "被封用户名", "操作管理员ID", "操作管理员名", "封禁原因"])
+            ws.append(["时间", "群名", "被封用户ID", "被封用户名", "操作管理员名", "封禁原因"])
             wb.save(EXCEL_FILE)
 
     @staticmethod
-    def save_to_excel(chat_title: str, banned_user_id: int, banned_user_name: str, 
-                     admin_id: int, admin_name: str, reason: str = "未填写"):
+    def save_to_excel(chat_title: str, banned_user_id: int, banned_user_name: str, admin_name: str, reason: str = "未填写"):
         """Save record to Excel"""
         try:
             if not os.path.exists(EXCEL_FILE):
@@ -51,7 +50,6 @@ class BanManager:
                 chat_title,
                 banned_user_id,
                 banned_user_name,
-                admin_id,
                 admin_name,
                 reason
             ])
@@ -185,7 +183,6 @@ async def ban_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "banned_user_id": banned_user_id,
             "banned_user_name": user_name,
             "chat_title": query.message.chat.title,
-            "admin_id": query.from_user.id,
             "admin_name": query.from_user.full_name
         }
         msg = await query.message.reply_text("Please enter custom ban reason:")
@@ -197,7 +194,6 @@ async def ban_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             chat_title=query.message.chat.title,
             banned_user_id=banned_user_id,
             banned_user_name=user_name,
-            admin_id=query.from_user.id,
             admin_name=query.from_user.full_name,
             reason=reason
         )
@@ -227,7 +223,6 @@ async def custom_reason_handler(update: Update, context: ContextTypes.DEFAULT_TY
             chat_title=pending_data["chat_title"],
             banned_user_id=pending_data["banned_user_id"],
             banned_user_name=pending_data["banned_user_name"],
-            admin_id=pending_data["admin_id"],
             admin_name=pending_data["admin_name"],
             reason=reason
         )
