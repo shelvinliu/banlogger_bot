@@ -4,275 +4,418 @@ import pytz
 import asyncio
 import openpyxl
 from datetime import datetime, timedelta
-from contextlib import asynccontextmanager
+from typing import Dict, Any, Optional
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatPermissions
 from telegram.ext import (
     Application, ApplicationBuilder, CommandHandler, CallbackQueryHandler,
     ContextTypes, MessageHandler, filters
 )
 
-TOKEN = os.getenv("TOKEN", "7705231017:AAG5L6HyQFcj7I4vlTHynU2wG0hbMOuhzSA")
-WEBHOOK_URL = "https://banlogger-bot.onrender.com"
+# 配置常量
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")  # 必须从环境变量获取
 WEBHOOK_PATH = "/telegram"
+WEBHOOK_URL = os.getenv("WEBHOOK_URL") + WEBHOOK_PATH if os.getenv("WEBHOOK_URL") else None
 EXCEL_FILE = "ban_records.xlsx"
+TIMEZONE = pytz.timezone('Asia/Shanghai')
 
-# 初始化 Excel 文件
-def init_excel():
-    if not os.path.exists(EXCEL_FILE):
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = "BanRecords"
-        ws.append(["时间", "群名", "被封用户", "操作管理员", "封禁原因"])
-        wb.save(EXCEL_FILE)
+# 初始化 FastAPI
+app = FastAPI(title="Telegram Ban Manager Bot")
+bot_app: Optional[Application] = None
 
-def save_to_excel(chat_title, banned_user, admin_user, reason="（未填写）"):
-    wb = openpyxl.load_workbook(EXCEL_FILE)
-    ws = wb["BanRecords"]
-    ws.append([
-        datetime.now(pytz.timezone('Asia/Shanghai')).strftime("%Y-%m-%d %H:%M:%S"),
-        chat_title,
-        banned_user,
-        admin_user,
-        reason
-    ])
-    wb.save(EXCEL_FILE)
+class BanManager:
+    """封禁管理核心类"""
+    @staticmethod
+    def init_excel():
+        """初始化Excel记录文件"""
+        if not os.path.exists(EXCEL_FILE):
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "BanRecords"
+            ws.append(["时间", "群名", "被封用户ID", "被封用户名", "操作管理员ID", "操作管理员名", "封禁原因"])
+            wb.save(EXCEL_FILE)
 
-def get_ban_reasons_keyboard(banned_user_id, banned_user_name):
-    return [
-        [
-            InlineKeyboardButton("FUD", callback_data=f"{banned_user_id}|{banned_user_name}|FUD"),
-            InlineKeyboardButton("广告内容", callback_data=f"{banned_user_id}|{banned_user_name}|广告内容"),
-            InlineKeyboardButton("攻击他人", callback_data=f"{banned_user_id}|{banned_user_name}|攻击他人"),
-        ],
-        [
-            InlineKeyboardButton("诈骗", callback_data=f"{banned_user_id}|{banned_user_name}|诈骗"),
-            InlineKeyboardButton("带节奏", callback_data=f"{banned_user_id}|{banned_user_name}|带节奏"),
-            InlineKeyboardButton("其他", callback_data=f"{banned_user_id}|{banned_user_name}|其他"),
-        ],
-    ]
+    @staticmethod
+    def save_to_excel(chat_title: str, banned_user_id: int, banned_user_name: str, 
+                     admin_id: int, admin_name: str, reason: str = "未填写"):
+        """保存记录到Excel"""
+        try:
+            wb = openpyxl.load_workbook(EXCEL_FILE)
+            ws = wb["BanRecords"]
+            ws.append([
+                datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S"),
+                chat_title,
+                banned_user_id,
+                banned_user_name,
+                admin_id,
+                admin_name,
+                reason
+            ])
+            wb.save(EXCEL_FILE)
+        except Exception as e:
+            print(f"保存Excel失败: {e}")
+            raise
 
-async def delete_later(msg, delay=5):
+    @staticmethod
+    def get_ban_reasons_keyboard(banned_user_id: int, banned_user_name: str) -> InlineKeyboardMarkup:
+        """生成封禁原因选择键盘"""
+        buttons = [
+            [
+                InlineKeyboardButton("FUD", callback_data=f"ban_reason|{banned_user_id}|{banned_user_name}|FUD"),
+                InlineKeyboardButton("广告", callback_data=f"ban_reason|{banned_user_id}|{banned_user_name}|广告"),
+                InlineKeyboardButton("攻击他人", callback_data=f"ban_reason|{banned_user_id}|{banned_user_name}|攻击他人"),
+            ],
+            [
+                InlineKeyboardButton("诈骗", callback_data=f"ban_reason|{banned_user_id}|{banned_user_name}|诈骗"),
+                InlineKeyboardButton("带节奏", callback_data=f"ban_reason|{banned_user_id}|{banned_user_name}|带节奏"),
+                InlineKeyboardButton("其他", callback_data=f"ban_reason|{banned_user_id}|{banned_user_name}|其他"),
+            ]
+        ]
+        return InlineKeyboardMarkup(buttons)
+
+    @staticmethod
+    def parse_duration(duration_str: str) -> timedelta:
+        """解析时间字符串如 '1d2h30m'"""
+        if not duration_str:
+            raise ValueError("时间不能为空")
+        
+        pattern = re.compile(r'((?P<days>\d+)d)?((?P<hours>\d+)h)?((?P<minutes>\d+)m)?')
+        match = pattern.fullmatch(duration_str.replace(" ", ""))
+        if not match:
+            raise ValueError("无效时间格式，请使用如 '1d2h30m' 的格式")
+
+        parts = {k: int(v) for k, v in match.groupdict().items() if v}
+        return timedelta(**parts)
+
+async def delete_message_later(message, delay: int = 5):
+    """延迟删除消息"""
     await asyncio.sleep(delay)
     try:
-        await msg.delete()
-    except:
-        pass
+        await message.delete()
+    except Exception as e:
+        print(f"删除消息失败: {e}")
 
-def parse_time(time_str):
-    time_regex = re.compile(r'(\d+)([dhm])')
-    time_dict = {'d': 0, 'h': 0, 'm': 0}
-    for match in time_regex.findall(time_str):
-        value, unit = match
-        value = int(value)
-        time_dict[unit] += value
-    return timedelta(days=time_dict['d'], hours=time_dict['h'], minutes=time_dict['m'])
+async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """检查用户是否是管理员"""
+    chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
+    
+    try:
+        member = await context.bot.get_chat_member(chat_id, user_id)
+        return member.status in ['administrator', 'creator']
+    except Exception as e:
+        print(f"检查管理员状态失败: {e}")
+        return False
 
-async def kick_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def kick_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理踢人命令 /f"""
+    if not await is_admin(update, context):
+        msg = await update.message.reply_text("❌ 只有管理员可以使用此命令")
+        asyncio.create_task(delete_message_later(msg))
+        return
+
     if not update.message.reply_to_message:
-        await update.message.reply_text("请回复某人的消息并输入 /f 来踢人")
+        msg = await update.message.reply_text("请回复要踢出的用户消息")
+        asyncio.create_task(delete_message_later(msg))
         return
 
     target_user = update.message.reply_to_message.from_user
-    chat_id = update.effective_chat.id
+    chat = update.effective_chat
 
     try:
-        await context.bot.ban_chat_member(chat_id, target_user.id)
-
-        kick_msg = await update.message.reply_text(
-            f"✅ 已踢出用户：{target_user.mention_html()}",
-            parse_mode="HTML"
+        # 踢出用户
+        await context.bot.ban_chat_member(
+            chat_id=chat.id,
+            user_id=target_user.id,
+            revoke_messages=True
         )
-
-        keyboard = get_ban_reasons_keyboard(target_user.id, target_user.username or target_user.full_name)
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        reason_msg = await update.message.reply_text(
-            f"🚨 用户 [{target_user.full_name}](tg://user?id={target_user.id}) 被踢出群组。\n请选择封禁原因：",
-            reply_markup=reply_markup,
+        
+        # 发送踢出通知
+        kick_msg = await update.message.reply_text(
+            f"🚨 用户 [{target_user.full_name}](tg://user?id={target_user.id}) 已被踢出",
             parse_mode="Markdown"
         )
-
-        context.chat_data["current_ban"] = {
-            "banned_user_id": target_user.id,
-            "operator_id": update.message.from_user.id
+        
+        # 添加封禁原因选择
+        reply_markup = BanManager.get_ban_reasons_keyboard(
+            banned_user_id=target_user.id,
+            banned_user_name=target_user.full_name
+        )
+        
+        reason_msg = await update.message.reply_text(
+            "请选择封禁原因：",
+            reply_markup=reply_markup
+        )
+        
+        # 记录操作上下文
+        context.chat_data["last_ban"] = {
+            "target_id": target_user.id,
+            "operator_id": update.effective_user.id
         }
-
-        asyncio.create_task(delete_later(kick_msg))
-        asyncio.create_task(delete_later(reason_msg))
-
+        
+        # 设置自动删除
+        asyncio.create_task(delete_message_later(kick_msg))
+        asyncio.create_task(delete_message_later(reason_msg))
+        
     except Exception as e:
-        await update.message.reply_text(f"❌ 踢人失败：{e}")
+        error_msg = await update.message.reply_text(f"❌ 踢出失败: {str(e)}")
+        asyncio.create_task(delete_message_later(error_msg))
 
-async def handle_ban_reason(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def ban_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理封禁原因选择"""
     query = update.callback_query
     await query.answer()
-
-    user_id = query.from_user.id
-    chat_id = query.message.chat.id
-
+    
+    # 验证回调数据格式
     try:
-        banned_user_id, banned_user_name, selected_reason = query.data.split("|")
+        _, user_id_str, user_name, reason = query.data.split("|")
+        banned_user_id = int(user_id_str)
     except ValueError:
-        msg = await query.message.reply_text("⚠️ 解析封禁原因失败")
-        asyncio.create_task(delete_later(msg))
+        error_msg = await query.message.reply_text("⚠️ 无效的回调数据")
+        asyncio.create_task(delete_message_later(error_msg))
         return
-
-    current_ban = context.chat_data.get("current_ban", {})
-    if user_id != current_ban.get("operator_id"):
-        msg = await query.message.reply_text("⚠️ 只能由最初执行 /kick 的管理员选择封禁原因。")
-        asyncio.create_task(delete_later(msg))
+    
+    # 验证操作权限
+    last_ban = context.chat_data.get("last_ban", {})
+    if query.from_user.id != last_ban.get("operator_id"):
+        error_msg = await query.message.reply_text("⚠️ 只有执行踢出的管理员能选择原因")
+        asyncio.create_task(delete_message_later(error_msg))
         return
-
-    member = await context.bot.get_chat_member(chat_id, user_id)
-    if member.status not in ["administrator", "creator"]:
-        msg = await query.message.reply_text("⚠️ 只有管理员可以选择封禁原因。")
-        asyncio.create_task(delete_later(msg))
-        return
-
-    if selected_reason == "其他":
-        context.user_data["pending_reason_user"] = {
-            "banned_user_name": banned_user_name,
+    
+    # 处理"其他"原因
+    if reason == "其他":
+        context.user_data["pending_reason"] = {
+            "banned_user_id": banned_user_id,
+            "banned_user_name": user_name,
             "chat_title": query.message.chat.title,
-            "admin_name": query.from_user.username or query.from_user.full_name
+            "admin_id": query.from_user.id,
+            "admin_name": query.from_user.full_name
         }
-        msg = await query.message.reply_text(
-            f"✏️ 请输入 {banned_user_name} 的自定义封禁原因："
-        )
-        asyncio.create_task(delete_later(msg))
+        msg = await query.message.reply_text("请输入自定义封禁原因:")
+        asyncio.create_task(delete_message_later(msg))
         return
-
-    save_to_excel(
-        query.message.chat.title,
-        banned_user_name,
-        query.from_user.username or query.from_user.full_name,
-        selected_reason
-    )
-
-    msg = await query.message.reply_text(f"✅ 封禁原因已记录：{banned_user_name} -> {selected_reason}")
-    asyncio.create_task(delete_later(msg))
-    asyncio.create_task(delete_later(query.message))
+    
+    # 保存记录
+    try:
+        BanManager.save_to_excel(
+            chat_title=query.message.chat.title,
+            banned_user_id=banned_user_id,
+            banned_user_name=user_name,
+            admin_id=query.from_user.id,
+            admin_name=query.from_user.full_name,
+            reason=reason
+        )
+        
+        confirm_msg = await query.message.reply_text(
+            f"✅ 已记录: {user_name} - {reason}"
+        )
+        asyncio.create_task(delete_message_later(confirm_msg))
+        asyncio.create_task(delete_message_later(query.message))
+        
+    except Exception as e:
+        error_msg = await query.message.reply_text(f"❌ 保存失败: {str(e)}")
+        asyncio.create_task(delete_message_later(error_msg))
 
 async def custom_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    data = context.user_data.get("pending_reason_user")
-    if not data:
+    """处理自定义封禁原因"""
+    pending_data = context.user_data.get("pending_reason")
+    if not pending_data:
         return
-
-    reason_text = update.message.text.strip()
-    if not reason_text:
-        msg = await update.message.reply_text("❌ 封禁原因不能为空，请重新输入。")
-        asyncio.create_task(delete_later(msg))
+    
+    reason = update.message.text.strip()
+    if not reason:
+        error_msg = await update.message.reply_text("❌ 原因不能为空")
+        asyncio.create_task(delete_message_later(error_msg))
         return
-
-    save_to_excel(
-        data["chat_title"],
-        data["banned_user_name"],
-        data["admin_name"],
-        reason_text
-    )
-
-    msg = await update.message.reply_text(f"✅ 自定义封禁原因已记录：{data['banned_user_name']} -> {reason_text}")
-    asyncio.create_task(delete_later(msg))
-
-    context.user_data.pop("pending_reason_user", None)
+    
+    try:
+        BanManager.save_to_excel(
+            chat_title=pending_data["chat_title"],
+            banned_user_id=pending_data["banned_user_id"],
+            banned_user_name=pending_data["banned_user_name"],
+            admin_id=pending_data["admin_id"],
+            admin_name=pending_data["admin_name"],
+            reason=reason
+        )
+        
+        confirm_msg = await update.message.reply_text(
+            f"✅ 已记录自定义原因: {reason}"
+        )
+        asyncio.create_task(delete_message_later(confirm_msg))
+        
+    except Exception as e:
+        error_msg = await update.message.reply_text(f"❌ 保存失败: {str(e)}")
+        asyncio.create_task(delete_message_later(error_msg))
+    
+    context.user_data.pop("pending_reason", None)
     await update.message.delete()
 
-async def mute_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message.reply_to_message:
-        await update.message.reply_text("请回复某人的消息并输入 /j 来禁言")
+async def mute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理禁言命令 /j"""
+    if not await is_admin(update, context):
+        msg = await update.message.reply_text("❌ 只有管理员可以使用此命令")
+        asyncio.create_task(delete_message_later(msg))
         return
-
+    
+    if not update.message.reply_to_message:
+        msg = await update.message.reply_text("请回复要禁言的用户消息")
+        asyncio.create_task(delete_message_later(msg))
+        return
+    
+    if not context.args:
+        msg = await update.message.reply_text("请指定禁言时间，例如: /j 1d2h30m")
+        asyncio.create_task(delete_message_later(msg))
+        return
+    
     target_user = update.message.reply_to_message.from_user
     chat_id = update.effective_chat.id
-
-    if len(context.args) < 1:
-        await update.message.reply_text("请指定禁言时间。例如: /j 1d 1h 表示禁言 1天 1小时")
-        return
-
-    mute_duration = ' '.join(context.args)
+    
     try:
-        mute_time = parse_time(mute_duration)
-    except Exception as e:
-        await update.message.reply_text(f"❌ 时间格式错误: {e}")
-        return
-
-    if mute_time.total_seconds() <= 0:
-        await update.message.reply_text("❌ 禁言时间必须大于 0。")
-        return
-
-    try:
-        permissions = ChatPermissions(can_send_messages=False)
+        duration = BanManager.parse_duration(" ".join(context.args))
+        until_date = datetime.now(TIMEZONE) + duration
+        
         await context.bot.restrict_chat_member(
-            chat_id, target_user.id,
-            permissions=permissions,
-            until_date=update.message.date + mute_time
+            chat_id=chat_id,
+            user_id=target_user.id,
+            permissions=ChatPermissions(can_send_messages=False),
+            until_date=until_date
         )
+        
         mute_msg = await update.message.reply_text(
-            f"✅ 已成功禁言用户 {target_user.mention_html()} {mute_duration}",
-            parse_mode="HTML"
+            f"⏳ 用户 [{target_user.full_name}](tg://user?id={target_user.id}) "
+            f"已被禁言 {duration}",
+            parse_mode="Markdown"
         )
-        asyncio.create_task(delete_later(mute_msg))
+        asyncio.create_task(delete_message_later(mute_msg))
+        
+    except ValueError as e:
+        error_msg = await update.message.reply_text(f"❌ 时间格式错误: {str(e)}")
+        asyncio.create_task(delete_message_later(error_msg))
     except Exception as e:
-        await update.message.reply_text(f"❌ 禁言失败：{e}")
+        error_msg = await update.message.reply_text(f"❌ 禁言失败: {str(e)}")
+        asyncio.create_task(delete_message_later(error_msg))
 
-async def unmute_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message.reply_to_message:
-        await update.message.reply_text("请回复某人的消息并输入 /Unmute 来解除禁言")
+async def unmute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理解除禁言命令 /unmute"""
+    if not await is_admin(update, context):
+        msg = await update.message.reply_text("❌ 只有管理员可以使用此命令")
+        asyncio.create_task(delete_message_later(msg))
         return
-
+    
+    if not update.message.reply_to_message:
+        msg = await update.message.reply_text("请回复要解除禁言的用户消息")
+        asyncio.create_task(delete_message_later(msg))
+        return
+    
     target_user = update.message.reply_to_message.from_user
     chat_id = update.effective_chat.id
-
+    
     try:
-        permissions = ChatPermissions(can_send_messages=True)
-        await context.bot.restrict_chat_member(chat_id, target_user.id, permissions=permissions)
-
+        await context.bot.restrict_chat_member(
+            chat_id=chat_id,
+            user_id=target_user.id,
+            permissions=ChatPermissions(
+                can_send_messages=True,
+                can_send_media_messages=True,
+                can_send_other_messages=True,
+                can_add_web_page_previews=True
+            )
+        )
+        
         unmute_msg = await update.message.reply_text(
-            f"✅ 已成功解除用户 {target_user.mention_html()} 的禁言",
-            parse_mode="HTML"
+            f"✅ 用户 [{target_user.full_name}](tg://user?id={target_user.id}) 已解除禁言",
+            parse_mode="Markdown"
         )
-        asyncio.create_task(delete_later(unmute_msg))
+        asyncio.create_task(delete_message_later(unmute_msg))
+        
     except Exception as e:
-        await update.message.reply_text(f"❌ 解除禁言失败：{e}")
+        error_msg = await update.message.reply_text(f"❌ 解除禁言失败: {str(e)}")
+        asyncio.create_task(delete_message_later(error_msg))
 
-async def download_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not os.path.exists(EXCEL_FILE):
-        await update.message.reply_text("❌ Excel 文件不存在。")
+async def excel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理导出Excel命令 /excel"""
+    if not await is_admin(update, context):
+        msg = await update.message.reply_text("❌ 只有管理员可以使用此命令")
+        asyncio.create_task(delete_message_later(msg))
         return
+    
+    if not os.path.exists(EXCEL_FILE):
+        error_msg = await update.message.reply_text("❌ 记录文件不存在")
+        asyncio.create_task(delete_message_later(error_msg))
+        return
+    
+    try:
+        with open(EXCEL_FILE, "rb") as file:
+            await update.message.reply_document(
+                document=file,
+                filename="封禁记录.xlsx",
+                caption="📊 封禁记录导出"
+            )
+    except Exception as e:
+        error_msg = await update.message.reply_text(f"❌ 导出失败: {str(e)}")
+        asyncio.create_task(delete_message_later(error_msg))
 
-    with open(EXCEL_FILE, "rb") as file:
-        await update.message.reply_document(
-            document=file,
-            filename=EXCEL_FILE,
-            caption="📄 这是封禁记录的Excel文件。"
-        )
-
-# FastAPI 实例 + lifespan 处理
-bot_app = None
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
+@app.on_event("startup")
+async def initialize_bot():
+    """初始化机器人"""
     global bot_app
-    init_excel()
-    bot_app = ApplicationBuilder().token(TOKEN).build()
+    
+    if not TOKEN:
+        raise RuntimeError("TELEGRAM_BOT_TOKEN 环境变量未设置")
+    
+    BanManager.init_excel()
+    
+    # 创建机器人实例
+    bot_app = (
+        ApplicationBuilder()
+        .token(TOKEN)
+        .post_init(post_init)
+        .build()
+    )
+    
+    # 注册处理器
+    handlers = [
+        CommandHandler("f", kick_handler),
+        CommandHandler("j", mute_handler),
+        CommandHandler("unmute", unmute_handler),
+        CommandHandler("excel", excel_handler),
+        CallbackQueryHandler(ban_reason_handler, pattern=r"^ban_reason\|"),
+        MessageHandler(filters.TEXT & ~filters.COMMAND, custom_reason_handler)
+    ]
+    
+    for handler in handlers:
+        bot_app.add_handler(handler)
+    
+    # 设置Webhook
+    if WEBHOOK_URL:
+        await bot_app.bot.set_webhook(
+            url=WEBHOOK_URL,
+            allowed_updates=Update.ALL_TYPES
+        )
+        print(f"Webhook 已设置: {WEBHOOK_URL}")
+    else:
+        print("警告: WEBHOOK_URL 未设置，将无法接收更新")
 
-    bot_app.add_handler(CommandHandler("f", kick_command))
-    bot_app.add_handler(CallbackQueryHandler(handle_ban_reason))
-    bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, custom_reason_handler))
-    bot_app.add_handler(CommandHandler("excel", download_excel))
-    bot_app.add_handler(CommandHandler("j", mute_command))
-    bot_app.add_handler(CommandHandler("Unmute", unmute_command))
-
-    await bot_app.bot.set_webhook(WEBHOOK_URL)
-    print("✅ Webhook 已设置")
-    yield
-
-app = FastAPI(lifespan=lifespan)
+async def post_init(app: Application):
+    """机器人初始化后执行"""
+    print(f"机器人 @{app.bot.username} 已启动")
 
 @app.post(WEBHOOK_PATH)
-async def process_update(request: Request):
-    update_data = await request.json()
-    update = Update.de_json(update_data, bot_app.bot)
-    await bot_app.process_update(update)
-    return {"status": "ok"}
+async def process_webhook(request: Request):
+    """处理Webhook请求"""
+    if not bot_app:
+        raise HTTPException(status_code=503, detail="机器人未初始化")
+    
+    try:
+        update_data = await request.json()
+        update = Update.de_json(update_data, bot_app.bot)
+        await bot_app.process_update(update)
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/health")
+async def health_check():
+    """健康检查端点"""
+    return {"status": "ok", "bot_ready": bool(bot_app)}
