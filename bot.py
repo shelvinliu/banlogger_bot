@@ -5,7 +5,6 @@ import pytz
 import asyncio
 import openpyxl
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException, status
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatPermissions
@@ -18,7 +17,7 @@ from telegram.ext import (
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")  # 必须从环境变量获取
 WEBHOOK_PATH = "/telegram"
 WEBHOOK_URL = os.getenv("RENDER_EXTERNAL_URL") + WEBHOOK_PATH if os.getenv("RENDER_EXTERNAL_URL") else None
-EXCEL_FILE = "/tmp/ban_records.xlsx"  # Render 临时存储
+EXCEL_FILE = "/tmp/ban_records.xlsx"  # Render使用临时存储
 TIMEZONE = pytz.timezone('Asia/Shanghai')
 
 class BanManager:
@@ -53,8 +52,9 @@ class BanManager:
                 reason
             ])
             wb.save(EXCEL_FILE)
+            print(f"✅ 记录已保存: {banned_user_name} - {reason}")
         except Exception as e:
-            print(f"保存Excel失败: {e}")
+            print(f"❌ 保存Excel失败: {e}")
             raise
 
     @staticmethod
@@ -392,25 +392,44 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+@app.get("/")
+async def home():
+    """根路由"""
+    return {
+        "status": "running",
+        "service": "Telegram Ban Manager",
+        "webhook_configured": bool(WEBHOOK_URL)
+    }
+
 @app.post(WEBHOOK_PATH)
 async def process_webhook(request: Request):
     """处理Webhook请求"""
     if not bot_app:
-        raise HTTPException(status_code=503, detail="机器人未初始化")
+        print("❌ 错误：机器人未初始化")
+        raise HTTPException(status_code=503, detail="Bot not initialized")
     
     try:
         # 记录原始数据用于调试
         raw_data = await request.body()
-        print(f"📩 收到更新: {raw_data.decode()}")
+        print(f"📩 收到更新 (长度: {len(raw_data)} bytes)")
         
         update_data = await request.json()
         update = Update.de_json(update_data, bot_app.bot)
+        
+        if update.message:
+            print(f"🔄 处理消息: {update.message.text or '<无文本内容>'}")
+        elif update.callback_query:
+            print(f"🔄 处理回调: {update.callback_query.data}")
+        
         await bot_app.process_update(update)
+        print("✅ 更新处理完成")
         return {"status": "ok"}
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=400, detail="无效的JSON数据")
+        
+    except json.JSONDecodeError as e:
+        print(f"❌ JSON 解析失败: {str(e)}")
+        raise HTTPException(status_code=400, detail="Invalid JSON data")
     except Exception as e:
-        print(f"❌ Webhook处理错误: {str(e)}")
+        print(f"❌ 处理更新失败: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/health")
@@ -419,9 +438,11 @@ async def health_check():
     return {
         "status": "ok",
         "bot_ready": bool(bot_app),
-        "webhook_url": WEBHOOK_URL
+        "webhook_url": WEBHOOK_URL,
+        "timestamp": datetime.now(TIMEZONE).isoformat()
     }
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
