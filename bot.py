@@ -11,7 +11,7 @@ from telegram.ext import (
     Application, ApplicationBuilder, CommandHandler, CallbackQueryHandler,
     ContextTypes, MessageHandler, filters
 )
-from supabase import create_client, Client
+from supabase import create_client
 
 # 配置
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -22,7 +22,7 @@ TIMEZONE = pytz.timezone('Asia/Shanghai')
 # 全局变量
 bot_app = None
 bot_initialized = False
-supabase = None
+supabase_client = None
 
 class BanManager:
     """封禁管理类"""
@@ -31,7 +31,7 @@ class BanManager:
     async def save_to_db(chat_title: str, banned_user_id: int, banned_user_name: str, 
                        admin_name: str, reason: str = "未填写"):
         """保存记录到数据库"""
-        global supabase
+        global supabase_client
         try:
             data = {
                 "time": datetime.now(TIMEZONE).isoformat(),
@@ -42,7 +42,7 @@ class BanManager:
                 "reason": reason
             }
             
-            response = supabase.table("ban_records").insert(data).execute()
+            response = supabase_client.table("ban_records").insert(data).execute()
             if response.data:
                 print(f"✅ 记录已保存: {banned_user_name} - {reason}")
             else:
@@ -50,6 +50,56 @@ class BanManager:
         except Exception as e:
             print(f"❌ 数据库操作失败: {e}")
             raise
+async def init_supabase():
+    """初始化Supabase客户端"""
+    global supabase_client
+    SUPABASE_URL = os.getenv("SUPABASE_URL")
+    SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+    
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise RuntimeError("Supabase URL和KEY必须配置")
+    
+    try:
+        # 使用最简单的初始化方式
+        supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        print("✅ Supabase客户端初始化成功")
+        
+        # 测试连接
+        test = supabase_client.table("ban_records").select("*").limit(1).execute()
+        print("✅ Supabase连接测试成功")
+    except Exception as e:
+        print(f"❌ Supabase初始化失败: {e}")
+        raise
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """FastAPI 生命周期管理"""
+    global bot_app, bot_initialized
+    
+    if not TOKEN:
+        raise RuntimeError("TELEGRAM_BOT_TOKEN 环境变量未设置")
+    
+    try:
+        # 先初始化Supabase - 使用最简单的初始化方式
+        await init_supabase()
+        
+        # 初始化机器人
+        bot_app = (
+            Application.builder()
+            .token(TOKEN)
+            .post_init(post_init)
+            .build()
+        )
+        
+        # ... [保持其余初始化代码不变] ...
+        
+    except Exception as e:
+        print(f"❌ 应用启动失败: {e}")
+        raise
+    finally:
+        # 清理代码保持不变
+        pass
 
     @staticmethod
     def get_ban_reasons_keyboard(banned_user_id: int, banned_user_name: str) -> InlineKeyboardMarkup:
