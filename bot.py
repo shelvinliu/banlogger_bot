@@ -409,7 +409,7 @@ async def process_webhook(request: Request):
     
     try:
         update_data = await request.json()
-        update = Update.de_json(update_data, bot_app.bot)
+        update = Update.from_dict(update_data)
         await bot_app.process_update(update)
         return {"status": "ok"}
     except Exception as e:
