@@ -181,4 +181,53 @@ async def lifespan(app: FastAPI):
                 print(f"关闭时出错: {e}")
         bot_initialized = False
 
-# ... [保持其余代码不变] ...
+async def post_init(application: Application) -> None:
+    """初始化后回调"""
+    print("✅ 机器人初始化完成")
+
+app = FastAPI(lifespan=lifespan)
+
+@app.get("/")
+async def home():
+    """根路由"""
+    return {
+        "status": "运行中",
+        "service": "Telegram封禁管理机器人",
+        "bot_initialized": bot_initialized,
+        "webhook_configured": bool(WEBHOOK_URL)
+    }
+
+@app.post(WEBHOOK_PATH)
+async def process_webhook(request: Request):
+    """处理Webhook请求"""
+    if not bot_app or not bot_initialized:
+        raise HTTPException(status_code=503, detail="机器人未初始化")
+    
+    try:
+        update_data = await request.json()
+        update = Update.de_json(update_data, bot_app.bot)
+        
+        await bot_app.process_update(update)
+        return {"status": "ok"}
+        
+    except json.JSONDecodeError as e:
+        print(f"JSON 解析失败: {e}")
+        raise HTTPException(status_code=400, detail="无效的JSON数据")
+    except Exception as e:
+        print(f"处理更新失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/health")
+async def health_check():
+    """健康检查"""
+    return {
+        "status": "正常",
+        "bot_ready": bot_initialized,
+        "webhook_url": WEBHOOK_URL,
+        "timestamp": datetime.now(TIMEZONE).isoformat()
+    }
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
