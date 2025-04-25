@@ -6,28 +6,29 @@ import asyncio
 import openpyxl
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, HTTPException, status
+from fastapi import FastAPI, Request, HTTPException
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatPermissions
 from telegram.ext import (
     Application, ApplicationBuilder, CommandHandler, CallbackQueryHandler,
     ContextTypes, MessageHandler, filters
 )
 
-# Configuration constants
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")  # Must be set in environment variables
+# Configuration
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 WEBHOOK_PATH = "/telegram"
 WEBHOOK_URL = os.getenv("RENDER_EXTERNAL_URL") + WEBHOOK_PATH if os.getenv("RENDER_EXTERNAL_URL") else None
-EXCEL_FILE = "/tmp/ban_records.xlsx"  # Using temporary storage for Render
+EXCEL_FILE = "/tmp/ban_records.xlsx"
 TIMEZONE = pytz.timezone('Asia/Shanghai')
 
 # Global application reference
 bot_app = None
+bot_initialized = False
 
 class BanManager:
-    """Core ban management class"""
+    """Ban management core class"""
     @staticmethod
     def init_excel():
-        """Initialize Excel record file"""
+        """Initialize Excel file"""
         if not os.path.exists(EXCEL_FILE):
             wb = openpyxl.Workbook()
             ws = wb.active
@@ -62,7 +63,7 @@ class BanManager:
 
     @staticmethod
     def get_ban_reasons_keyboard(banned_user_id: int, banned_user_name: str) -> InlineKeyboardMarkup:
-        """Generate ban reason selection keyboard"""
+        """Generate ban reason keyboard"""
         buttons = [
             [
                 InlineKeyboardButton("FUD", callback_data=f"ban_reason|{banned_user_id}|{banned_user_name}|FUD"),
@@ -112,7 +113,7 @@ async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         return False
 
 async def kick_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle kick command /f"""
+    """Handle /f command"""
     if not await is_admin(update, context):
         msg = await update.message.reply_text("❌ Only admins can use this command")
         asyncio.create_task(delete_message_later(msg))
@@ -242,7 +243,7 @@ async def custom_reason_handler(update: Update, context: ContextTypes.DEFAULT_TY
     await update.message.delete()
 
 async def mute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle mute command /j"""
+    """Handle /j command"""
     if not await is_admin(update, context):
         msg = await update.message.reply_text("❌ Only admins can use this command")
         asyncio.create_task(delete_message_later(msg))
@@ -287,7 +288,7 @@ async def mute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         asyncio.create_task(delete_message_later(error_msg))
 
 async def unmute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle unmute command /unmute"""
+    """Handle /unmute command"""
     if not await is_admin(update, context):
         msg = await update.message.reply_text("❌ Only admins can use this command")
         asyncio.create_task(delete_message_later(msg))
@@ -324,7 +325,7 @@ async def unmute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         asyncio.create_task(delete_message_later(error_msg))
 
 async def excel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle Excel export command /excel"""
+    """Handle /excel command"""
     if not await is_admin(update, context):
         msg = await update.message.reply_text("❌ Only admins can use this command")
         asyncio.create_task(delete_message_later(msg))
@@ -349,22 +350,15 @@ async def excel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """FastAPI lifespan management"""
-    global bot_app
+    global bot_app, bot_initialized
     
     if not TOKEN:
         raise RuntimeError("TELEGRAM_BOT_TOKEN environment variable not set")
     
     BanManager.init_excel()
     
-    # Initialize the Application properly
-    bot_app = (
-        Application.builder()
-        .token(TOKEN)
-        .build()
-    )
-    
-    # Initialize the application
-    await bot_app.initialize()
+    # Initialize the Application
+    bot_app = Application.builder().token(TOKEN).build()
     
     # Register handlers
     handlers = [
@@ -379,24 +373,27 @@ async def lifespan(app: FastAPI):
     for handler in handlers:
         bot_app.add_handler(handler)
     
-    # Start polling if not using webhook
-    if not WEBHOOK_URL:
-        await bot_app.start()
-        print("✅ Bot started in polling mode")
-    else:
+    # Initialize and start
+    await bot_app.initialize()
+    
+    if WEBHOOK_URL:
         await bot_app.bot.delete_webhook(drop_pending_updates=True)
         await bot_app.bot.set_webhook(
             url=WEBHOOK_URL,
             allowed_updates=Update.ALL_TYPES
         )
         print(f"✅ Webhook set to: {WEBHOOK_URL}")
+    else:
+        await bot_app.start()
+        print("✅ Bot started in polling mode")
     
-    # Verify bot is working
+    bot_initialized = True
+    
     try:
         me = await bot_app.bot.get_me()
         print(f"🤖 Bot @{me.username} initialized successfully")
     except Exception as e:
-        print(f"❌ Failed to initialize bot: {e}")
+        print(f"❌ Failed to verify bot: {e}")
         raise
     
     yield
@@ -406,6 +403,7 @@ async def lifespan(app: FastAPI):
         if not WEBHOOK_URL:
             await bot_app.stop()
         await bot_app.shutdown()
+    bot_initialized = False
 
 app = FastAPI(lifespan=lifespan)
 
@@ -415,13 +413,14 @@ async def home():
     return {
         "status": "running",
         "service": "Telegram Ban Manager",
+        "bot_initialized": bot_initialized,
         "webhook_configured": bool(WEBHOOK_URL)
     }
 
 @app.post(WEBHOOK_PATH)
 async def process_webhook(request: Request):
     """Handle webhook updates"""
-    if not bot_app or not bot_app.initialized:
+    if not bot_app or not bot_initialized:
         raise HTTPException(status_code=503, detail="Bot not initialized")
     
     try:
@@ -441,7 +440,7 @@ async def health_check():
     """Health check endpoint"""
     return {
         "status": "ok",
-        "bot_ready": bot_app and bot_app.initialized,
+        "bot_initialized": bot_initialized,
         "webhook_url": WEBHOOK_URL,
         "timestamp": datetime.now(TIMEZONE).isoformat()
     }
@@ -450,11 +449,11 @@ async def health_check():
 async def readiness_check():
     """Readiness check endpoint"""
     try:
-        me = await bot_app.bot.get_me() if bot_app else None
+        me = await bot_app.bot.get_me() if bot_app and bot_initialized else None
         return {
-            "ready": bot_app and bot_app.initialized,
-            "webhook": bool(WEBHOOK_URL),
-            "bot_username": me.username if me else None
+            "ready": bot_initialized,
+            "bot_username": me.username if me else None,
+            "webhook": bool(WEBHOOK_URL)
         }
     except Exception as e:
         return {
