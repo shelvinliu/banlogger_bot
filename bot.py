@@ -17,7 +17,7 @@ from telegram.ext import (
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 WEBHOOK_PATH = "/telegram"
 WEBHOOK_URL = os.getenv("RENDER_EXTERNAL_URL") + WEBHOOK_PATH if os.getenv("RENDER_EXTERNAL_URL") else None
-EXCEL_FILE = "/tmp/ban_records.xlsx"
+EXCEL_FILE = "ban_records.xlsx"
 TIMEZONE = pytz.timezone('Asia/Shanghai')
 
 # Global application reference
