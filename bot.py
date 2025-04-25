@@ -21,8 +21,7 @@ EXCEL_FILE = "ban_records.xlsx"
 TIMEZONE = pytz.timezone('Asia/Shanghai')
 
 # 初始化 FastAPI
-app = FastAPI(title="Telegram Ban Manager Bot", lifespan=lifespan)
-bot_app: Optional[Application] = None
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global bot_app
@@ -61,6 +60,9 @@ async def lifespan(app: FastAPI):
         print("警告: WEBHOOK_URL 未设置，将无法接收更新")
 
     yield  # 表示 lifespan 中的“运行期”开始
+
+app = FastAPI(title="Telegram Ban Manager Bot", lifespan=lifespan)
+bot_app: Optional[Application] = None
     # （可选）你也可以在这里处理一些清理逻辑
 class BanManager:
     """封禁管理核心类"""
