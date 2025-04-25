@@ -5,7 +5,7 @@ import asyncio
 import openpyxl
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
-
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatPermissions
 from telegram.ext import (
@@ -21,9 +21,47 @@ EXCEL_FILE = "ban_records.xlsx"
 TIMEZONE = pytz.timezone('Asia/Shanghai')
 
 # 初始化 FastAPI
-app = FastAPI(title="Telegram Ban Manager Bot")
+app = FastAPI(title="Telegram Ban Manager Bot", lifespan=lifespan)
 bot_app: Optional[Application] = None
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global bot_app
 
+    if not TOKEN:
+        raise RuntimeError("TELEGRAM_BOT_TOKEN 环境变量未设置")
+    
+    BanManager.init_excel()
+    
+    bot_app = (
+        ApplicationBuilder()
+        .token(TOKEN)
+        .post_init(post_init)
+        .build()
+    )
+
+    handlers = [
+        CommandHandler("f", kick_handler),
+        CommandHandler("j", mute_handler),
+        CommandHandler("unmute", unmute_handler),
+        CommandHandler("excel", excel_handler),
+        CallbackQueryHandler(ban_reason_handler, pattern=r"^ban_reason\|"),
+        MessageHandler(filters.TEXT & ~filters.COMMAND, custom_reason_handler)
+    ]
+
+    for handler in handlers:
+        bot_app.add_handler(handler)
+
+    if WEBHOOK_URL:
+        await bot_app.bot.set_webhook(
+            url=WEBHOOK_URL,
+            allowed_updates=Update.ALL_TYPES
+        )
+        print(f"Webhook 已设置: {WEBHOOK_URL}")
+    else:
+        print("警告: WEBHOOK_URL 未设置，将无法接收更新")
+
+    yield  # 表示 lifespan 中的“运行期”开始
+    # （可选）你也可以在这里处理一些清理逻辑
 class BanManager:
     """封禁管理核心类"""
     @staticmethod
