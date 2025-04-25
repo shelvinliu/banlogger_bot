@@ -1,12 +1,13 @@
 import os
 import re
+import json
 import pytz
 import asyncio
 import openpyxl
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, status
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatPermissions
 from telegram.ext import (
     Application, ApplicationBuilder, CommandHandler, CallbackQueryHandler,
@@ -16,54 +17,10 @@ from telegram.ext import (
 # 配置常量
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")  # 必须从环境变量获取
 WEBHOOK_PATH = "/telegram"
-WEBHOOK_URL = os.getenv("RENDER_EXTERNAL_URL") + WEBHOOK_PATH  # Render自动提供
-EXCEL_FILE = "ban_records.xlsx"
+WEBHOOK_URL = os.getenv("RENDER_EXTERNAL_URL") + WEBHOOK_PATH if os.getenv("RENDER_EXTERNAL_URL") else None
+EXCEL_FILE = "/tmp/ban_records.xlsx"  # Render 临时存储
 TIMEZONE = pytz.timezone('Asia/Shanghai')
 
-# 初始化 FastAPI
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global bot_app
-
-    if not TOKEN:
-        raise RuntimeError("TELEGRAM_BOT_TOKEN 环境变量未设置")
-    
-    BanManager.init_excel()
-    
-    bot_app = (
-        ApplicationBuilder()
-        .token(TOKEN)
-        .post_init(post_init)
-        .build()
-    )
-
-    handlers = [
-        CommandHandler("f", kick_handler),
-        CommandHandler("j", mute_handler),
-        CommandHandler("unmute", unmute_handler),
-        CommandHandler("excel", excel_handler),
-        CallbackQueryHandler(ban_reason_handler, pattern=r"^ban_reason\|"),
-        MessageHandler(filters.TEXT & ~filters.COMMAND, custom_reason_handler)
-    ]
-
-    for handler in handlers:
-        bot_app.add_handler(handler)
-
-    if WEBHOOK_URL:
-        await bot_app.bot.set_webhook(
-            url=WEBHOOK_URL,
-            allowed_updates=Update.ALL_TYPES
-        )
-        print(f"Webhook 已设置: {WEBHOOK_URL}")
-    else:
-        print("警告: WEBHOOK_URL 未设置，将无法接收更新")
-
-    yield  # 表示 lifespan 中的“运行期”开始
-
-app = FastAPI(title="Telegram Ban Manager Bot", lifespan=lifespan)
-bot_app: Optional[Application] = None
-    # （可选）你也可以在这里处理一些清理逻辑
 class BanManager:
     """封禁管理核心类"""
     @staticmethod
@@ -81,6 +38,9 @@ class BanManager:
                      admin_id: int, admin_name: str, reason: str = "未填写"):
         """保存记录到Excel"""
         try:
+            if not os.path.exists(EXCEL_FILE):
+                BanManager.init_excel()
+                
             wb = openpyxl.load_workbook(EXCEL_FILE)
             ws = wb["BanRecords"]
             ws.append([
@@ -164,20 +124,17 @@ async def kick_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
 
     try:
-        # 踢出用户
         await context.bot.ban_chat_member(
             chat_id=chat.id,
             user_id=target_user.id,
             revoke_messages=True
         )
         
-        # 发送踢出通知
         kick_msg = await update.message.reply_text(
             f"🚨 用户 [{target_user.full_name}](tg://user?id={target_user.id}) 已被踢出",
             parse_mode="Markdown"
         )
         
-        # 添加封禁原因选择
         reply_markup = BanManager.get_ban_reasons_keyboard(
             banned_user_id=target_user.id,
             banned_user_name=target_user.full_name
@@ -188,13 +145,11 @@ async def kick_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=reply_markup
         )
         
-        # 记录操作上下文
         context.chat_data["last_ban"] = {
             "target_id": target_user.id,
             "operator_id": update.effective_user.id
         }
         
-        # 设置自动删除
         asyncio.create_task(delete_message_later(kick_msg))
         asyncio.create_task(delete_message_later(reason_msg))
         
@@ -207,7 +162,6 @@ async def ban_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     query = update.callback_query
     await query.answer()
     
-    # 验证回调数据格式
     try:
         _, user_id_str, user_name, reason = query.data.split("|")
         banned_user_id = int(user_id_str)
@@ -216,14 +170,12 @@ async def ban_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         asyncio.create_task(delete_message_later(error_msg))
         return
     
-    # 验证操作权限
     last_ban = context.chat_data.get("last_ban", {})
     if query.from_user.id != last_ban.get("operator_id"):
         error_msg = await query.message.reply_text("⚠️ 只有执行踢出的管理员能选择原因")
         asyncio.create_task(delete_message_later(error_msg))
         return
     
-    # 处理"其他"原因
     if reason == "其他":
         context.user_data["pending_reason"] = {
             "banned_user_id": banned_user_id,
@@ -236,7 +188,6 @@ async def ban_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         asyncio.create_task(delete_message_later(msg))
         return
     
-    # 保存记录
     try:
         BanManager.save_to_excel(
             chat_title=query.message.chat.title,
@@ -247,9 +198,7 @@ async def ban_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             reason=reason
         )
         
-        confirm_msg = await query.message.reply_text(
-            f"✅ 已记录: {user_name} - {reason}"
-        )
+        confirm_msg = await query.message.reply_text(f"✅ 已记录: {user_name} - {reason}")
         asyncio.create_task(delete_message_later(confirm_msg))
         asyncio.create_task(delete_message_later(query.message))
         
@@ -279,9 +228,7 @@ async def custom_reason_handler(update: Update, context: ContextTypes.DEFAULT_TY
             reason=reason
         )
         
-        confirm_msg = await update.message.reply_text(
-            f"✅ 已记录自定义原因: {reason}"
-        )
+        confirm_msg = await update.message.reply_text(f"✅ 已记录自定义原因: {reason}")
         asyncio.create_task(delete_message_later(confirm_msg))
         
     except Exception as e:
@@ -396,9 +343,9 @@ async def excel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         error_msg = await update.message.reply_text(f"❌ 导出失败: {str(e)}")
         asyncio.create_task(delete_message_later(error_msg))
 
-@app.on_event("startup")
-async def initialize_bot():
-    """初始化机器人"""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """FastAPI 生命周期管理"""
     global bot_app
     
     if not TOKEN:
@@ -410,7 +357,6 @@ async def initialize_bot():
     bot_app = (
         ApplicationBuilder()
         .token(TOKEN)
-        .post_init(post_init)
         .build()
     )
     
@@ -429,17 +375,22 @@ async def initialize_bot():
     
     # 设置Webhook
     if WEBHOOK_URL:
+        await bot_app.bot.delete_webhook(drop_pending_updates=True)
         await bot_app.bot.set_webhook(
             url=WEBHOOK_URL,
             allowed_updates=Update.ALL_TYPES
         )
-        print(f"Webhook 已设置: {WEBHOOK_URL}")
+        print(f"✅ Webhook 已设置为: {WEBHOOK_URL}")
     else:
-        print("警告: WEBHOOK_URL 未设置，将无法接收更新")
+        print("⚠️ 警告: WEBHOOK_URL 未设置，将无法接收更新")
+    
+    yield
+    
+    # 清理
+    if bot_app:
+        await bot_app.shutdown()
 
-async def post_init(app: Application):
-    """机器人初始化后执行"""
-    print(f"机器人 @{app.bot.username} 已启动")
+app = FastAPI(lifespan=lifespan)
 
 @app.post(WEBHOOK_PATH)
 async def process_webhook(request: Request):
@@ -448,18 +399,29 @@ async def process_webhook(request: Request):
         raise HTTPException(status_code=503, detail="机器人未初始化")
     
     try:
+        # 记录原始数据用于调试
+        raw_data = await request.body()
+        print(f"📩 收到更新: {raw_data.decode()}")
+        
         update_data = await request.json()
-        update = Update.from_dict(update_data)
+        update = Update.de_json(update_data, bot_app.bot)
         await bot_app.process_update(update)
         return {"status": "ok"}
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="无效的JSON数据")
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        print(f"❌ Webhook处理错误: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/health")
 async def health_check():
     """健康检查端点"""
-    return {"status": "ok", "bot_ready": bool(bot_app)}
-# ---------- 主程序入口 ----------
+    return {
+        "status": "ok",
+        "bot_ready": bool(bot_app),
+        "webhook_url": WEBHOOK_URL
+    }
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
