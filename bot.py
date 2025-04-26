@@ -10,7 +10,7 @@ from typing import Optional, Dict, Any, List
 from contextlib import asynccontextmanager
 import pandas as pd
 from github import Github, GithubException
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, APIRouter
 from telegram import (
     Update,
     InlineKeyboardButton,
@@ -635,6 +635,7 @@ async def lifespan(app: FastAPI):
 # FastAPI应用实例
 app = FastAPI(lifespan=lifespan)
 
+router = APIRouter()
 
 @router.api_route("/health", methods=["GET", "HEAD"])
 async def health_check():
