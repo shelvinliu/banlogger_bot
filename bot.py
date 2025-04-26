@@ -4,13 +4,12 @@ import json
 import pytz
 import asyncio
 import logging
+import base64
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 from contextlib import asynccontextmanager
 import pandas as pd
 from github import Github, GithubException
-
-
 from fastapi import FastAPI, Request, HTTPException
 from telegram import (
     Update,
@@ -37,8 +36,8 @@ logger = logging.getLogger(__name__)
 
 # 配置
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")  # 从环境变量获取GitHub Token
-REPO_NAME = os.getenv("GITHUB_REPO")     # 格式：username/repo
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")  # GitHub Personal Access Token
+GITHUB_REPO = os.getenv("GITHUB_REPO")    # 格式：username/repo
 WEBHOOK_PATH = "/telegram"
 WEBHOOK_URL = f"{os.getenv('RENDER_EXTERNAL_URL', '')}{WEBHOOK_PATH}" if os.getenv("RENDER_EXTERNAL_URL") else None
 TIMEZONE = pytz.timezone(os.getenv("TIMEZONE", "Asia/Shanghai"))
@@ -56,19 +55,19 @@ class GitHubStorage:
     @staticmethod
     async def load_from_github() -> List[Dict[str, Any]]:
         """从GitHub加载Excel数据"""
-        if not GITHUB_TOKEN or not REPO_NAME:
+        if not GITHUB_TOKEN or not GITHUB_REPO:
             logger.warning("未配置GITHUB_TOKEN或GITHUB_REPO，无法从GitHub加载数据")
             return []
             
         try:
             g = Github(GITHUB_TOKEN)
-            repo = g.get_repo(REPO_NAME)
+            repo = g.get_repo(GITHUB_REPO)
             try:
                 contents = repo.get_contents(EXCEL_FILE)
-                file_data = base64.b64decode(contents.content).decode('utf-8')
+                file_data = base64.b64decode(contents.content)
                 
                 # 临时保存到本地
-                with open(EXCEL_FILE, "w", encoding="utf-8") as f:
+                with open(EXCEL_FILE, "wb") as f:
                     f.write(file_data)
                 
                 # 读取Excel到内存
@@ -85,7 +84,7 @@ class GitHubStorage:
     @staticmethod
     async def save_to_github(records: List[Dict[str, Any]]) -> bool:
         """保存数据到GitHub"""
-        if not GITHUB_TOKEN or not REPO_NAME:
+        if not GITHUB_TOKEN or not GITHUB_REPO:
             logger.error("未配置GITHUB_TOKEN或GITHUB_REPO，无法保存到GitHub")
             return False
             
@@ -100,7 +99,7 @@ class GitHubStorage:
             
             # 上传到GitHub
             g = Github(GITHUB_TOKEN)
-            repo = g.get_repo(REPO_NAME)
+            repo = g.get_repo(GITHUB_REPO)
             
             try:
                 # 尝试获取现有文件（更新模式）
@@ -199,12 +198,6 @@ class BanManager:
         except Exception as e:
             logger.error(f"保存记录失败: {e}")
             return False
-
-# 初始化时从GitHub加载历史数据
-async def init_data():
-    global ban_records
-    ban_records = await GitHubStorage.load_from_github()
-    logger.info(f"已从GitHub加载 {len(ban_records)} 条历史记录")
 
 async def delete_message_later(message, delay: int = 30) -> None:
     """延迟删除消息"""
@@ -606,13 +599,28 @@ async def lifespan(app: FastAPI):
     global bot_app, bot_initialized
 
     if not bot_initialized:
-        # 初始化时加载数据
-        await init_data()
-        
+        # 初始化时从GitHub加载数据
+        global ban_records
+        ban_records = await GitHubStorage.load_from_github()
+        logger.info(f"从GitHub加载了 {len(ban_records)} 条历史记录")
+
         bot_app = ApplicationBuilder().token(TOKEN).build()
 
-        # 注册处理器 [保持原有代码不变]
-        # ...
+        # 注册处理器
+        bot_app.add_handler(CommandHandler("start", start_handler))
+        bot_app.add_handler(CommandHandler("kick", kick_handler))
+        bot_app.add_handler(CommandHandler("mute", mute_handler))
+        bot_app.add_handler(CommandHandler("unmute", unmute_handler))
+        bot_app.add_handler(CommandHandler("records", records_handler))
+        bot_app.add_handler(CommandHandler("search", search_handler))
+        bot_app.add_handler(CommandHandler("export", export_handler))
+        bot_app.add_handler(CallbackQueryHandler(ban_reason_handler))
+        bot_app.add_handler(MessageHandler(filters.TEXT & filters.REPLY, custom_reason_handler))
+
+        await bot_app.initialize()
+        await bot_app.start()
+        if WEBHOOK_URL:
+            await bot_app.bot.set_webhook(url=WEBHOOK_URL)
 
         bot_initialized = True
         logger.info("✅ Bot 已成功初始化并启动")
@@ -626,9 +634,11 @@ async def lifespan(app: FastAPI):
 
 # FastAPI应用实例
 app = FastAPI(lifespan=lifespan)
-@app.get("/health")  # 确保这个路由存在
+
+@app.get("/health")
 async def health_check():
     return {"status": "ok"}
+
 @app.post(WEBHOOK_PATH)
 async def telegram_webhook(req: Request):
     """Telegram Webhook入口"""
