@@ -120,25 +120,17 @@ class BanManager:
             logger.error(f"数据库操作失败: {e}")
             return False
 
-async def init_supabase() -> None:
-    """初始化Supabase客户端"""
+
+
+
+async def init_supabase():
     global supabase_client
-    SUPABASE_URL = os.getenv("SUPABASE_URL")
-    SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-    
-    if not SUPABASE_URL or not SUPABASE_KEY:
-        raise RuntimeError("Supabase URL和KEY必须配置")
-    
     try:
         supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
-        logger.info("✅ Supabase客户端初始化成功")
-        
-        # 测试连接
-        test = supabase_client.table("ban_records").select("*").limit(1).execute()
-        logger.info("✅ Supabase连接测试成功")
+        print("✅ Supabase 初始化成功")
     except Exception as e:
-        logger.error(f"❌ Supabase初始化失败: {e}")
-        raise
+        print(f"❌ Supabase 初始化失败: {e}")
+
 
 async def delete_message_later(message, delay: int = 30) -> None:
     """延迟删除消息"""
