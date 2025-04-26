@@ -462,177 +462,102 @@ async def search_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         msg = await update.message.reply_text("❌ 只有管理员可以使用此命令")
         asyncio.create_task(delete_message_later(msg))
         return
-    
+
     if not context.args:
         msg = await update.message.reply_text("请输入搜索关键词，例如: /search 广告")
         asyncio.create_task(delete_message_later(msg))
         return
-    
-    search_term = " ".join(context.args)
-    
+
+    keyword = " ".join(context.args)
+
     try:
         response = supabase_client.table("ban_records") \
             .select("*") \
-            .or_(f"banned_user_name.ilike.%{search_term}%,reason.ilike.%{search_term}%") \
+            .ilike("reason", f"%{keyword}%") \
             .order("time", desc=True) \
             .limit(MAX_RECORDS_DISPLAY) \
             .execute()
-        
+
         records = response.data
-        
+
         if not records:
-            msg = await update.message.reply_text(f"没有找到包含 '{search_term}' 的记录")
+            msg = await update.message.reply_text("未找到匹配的封禁记录")
             asyncio.create_task(delete_message_later(msg, delay=10))
             return
-        
-        message = f"🔍 搜索 '{search_term}' 结果:\n\n"
+
+        message = f"🔍 搜索结果 (关键词: {keyword}):\n\n"
         for record in records:
             record_time = datetime.fromisoformat(record["time"]).astimezone(TIMEZONE).strftime("%Y-%m-%d %H:%M")
             message += (
                 f"🕒 {record_time}\n"
-                f"👤 用户: {record.get('banned_user_name', '未知')}\n"
+                f"👤 用户: {record.get('banned_user_name', '未知')} (ID: {record.get('banned_user_id', '未知')})\n"
+                f"👮 管理员: {record.get('admin_name', '未知')}\n"
                 f"📝 原因: {record.get('reason', '未填写')}\n"
                 f"💬 群组: {record.get('group_name', '未知')}\n"
                 "━━━━━━━━━━━━━━\n"
             )
-        
+
         msg = await update.message.reply_text(message)
-        asyncio.create_task(delete_message_later(msg, delay=30))
-        
+        asyncio.create_task(delete_message_later(msg, delay=60))
+
     except Exception as e:
         error_msg = await update.message.reply_text(f"❌ 搜索失败: {str(e)}")
         asyncio.create_task(delete_message_later(error_msg))
         logger.error(f"搜索封禁记录失败: {e}")
 
-async def post_init(application: Application) -> None:
-    """机器人初始化后回调"""
-    logger.info("✅ 机器人初始化完成")
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """FastAPI 生命周期管理"""
+    """FastAPI生命周期管理"""
     global bot_app, bot_initialized
-    
-    if not TOKEN:
-        raise RuntimeError("TELEGRAM_BOT_TOKEN 环境变量未设置")
-    
-    try:
-        # 初始化Supabase
-        await init_supabase()
-        
-        # 初始化机器人
-        bot_app = (
-            Application.builder()
-            .token(TOKEN)
-            .post_init(post_init)
-            .build()
-        )
-        
-        # 注册处理器
-        handlers = [
-            CommandHandler("start", start_handler),
-            CommandHandler("kick", kick_handler),
-            CommandHandler("mute", mute_handler),
-            CommandHandler("unmute", unmute_handler),
-            CommandHandler("records", records_handler),
-            CommandHandler("search", search_handler),
-            CallbackQueryHandler(ban_reason_handler, pattern=r"^ban_reason\|"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, custom_reason_handler)
-        ]
-        
-        for handler in handlers:
-            bot_app.add_handler(handler)
-        
-        # 初始化机器人
-        await bot_app.initialize()
-        
-        # 设置Webhook或轮询
-        if WEBHOOK_URL:
-            await bot_app.bot.delete_webhook(drop_pending_updates=True)
-            await bot_app.bot.set_webhook(
-                url=WEBHOOK_URL,
-                allowed_updates=Update.ALL_TYPES
-            )
-            logger.info(f"✅ Webhook 已设置为: {WEBHOOK_URL}")
-        else:
-            await bot_app.start()
-            logger.info("✅ 机器人以轮询模式启动")
-        
-        bot_initialized = True
-        
-        # 验证机器人
-        try:
-            me = await bot_app.bot.get_me()
-            logger.info(f"🤖 机器人 @{me.username} 初始化成功")
-        except Exception as e:
-            logger.error(f"❌ 无法验证机器人: {e}")
-            raise
-        
-        yield
-        
-    finally:
-        # 清理
-        if bot_app:
-            try:
-                if not WEBHOOK_URL:
-                    await bot_app.stop()
-                await bot_app.shutdown()
-            except Exception as e:
-                logger.error(f"关闭时出错: {e}")
-        bot_initialized = False
 
+    if not bot_initialized:
+        await init_supabase()
+
+        bot_app = ApplicationBuilder().token(TOKEN).build()
+
+        # 注册处理器
+        bot_app.add_handler(CommandHandler("start", start_handler))
+        bot_app.add_handler(CommandHandler("kick", kick_handler))
+        bot_app.add_handler(CommandHandler("mute", mute_handler))
+        bot_app.add_handler(CommandHandler("unmute", unmute_handler))
+        bot_app.add_handler(CommandHandler("records", records_handler))
+        bot_app.add_handler(CommandHandler("search", search_handler))
+        bot_app.add_handler(CallbackQueryHandler(ban_reason_handler))
+        bot_app.add_handler(MessageHandler(filters.TEXT & filters.REPLY, custom_reason_handler))
+
+        await bot_app.initialize()
+        await bot_app.start()
+        if WEBHOOK_URL:
+            await bot_app.bot.set_webhook(url=WEBHOOK_URL)
+
+        bot_initialized = True
+        logger.info("✅ Bot 已成功初始化并启动")
+    
+    yield
+
+    if bot_app:
+        await bot_app.stop()
+        await bot_app.shutdown()
+        logger.info("✅ Bot 已停止")
+
+# FastAPI应用实例
 app = FastAPI(lifespan=lifespan)
 
-@app.get("/")
-async def home():
-    """根路由"""
-    return {
-        "status": "运行中",
-        "service": "Telegram封禁管理机器人",
-        "bot_initialized": bot_initialized,
-        "webhook_configured": bool(WEBHOOK_URL)
-    }
-
 @app.post(WEBHOOK_PATH)
-async def process_webhook(request: Request):
-    """处理Webhook请求"""
-    if not bot_app or not bot_initialized:
-        raise HTTPException(status_code=503, detail="机器人未初始化")
-    
+async def telegram_webhook(req: Request):
+    """Telegram Webhook入口"""
+    if not bot_app:
+        raise HTTPException(status_code=503, detail="Bot未初始化")
+
     try:
-        update_data = await request.json()
-        update = Update.de_json(update_data, bot_app.bot)
-        
+        data = await req.json()
+        update = Update.de_json(data, bot_app.bot)
         await bot_app.process_update(update)
-        return {"status": "ok"}
-        
-    except json.JSONDecodeError as e:
-        logger.error(f"JSON 解析失败: {e}")
-        raise HTTPException(status_code=400, detail="无效的JSON数据")
+        return {"ok": True}
     except Exception as e:
         logger.error(f"处理更新失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/health")
-async def health_check():
-    """健康检查"""
-    db_status = "未知"
-    try:
-        supabase_client.table("ban_records").select("*").limit(1).execute()
-        db_status = "正常"
-    except Exception as e:
-        db_status = f"异常: {str(e)}"
-        logger.error(f"健康检查数据库错误: {e}")
-
-    return {
-        "status": "运行中",
-        "database": db_status,
-        "bot_ready": bot_initialized,
-        "webhook": WEBHOOK_URL if WEBHOOK_URL else "使用轮询模式",
-        "timestamp": datetime.now(TIMEZONE).isoformat()
-    }
+        raise HTTPException(status_code=400, detail="处理更新失败")
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run("your_filename:app", host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
