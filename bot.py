@@ -625,9 +625,9 @@ async def lifespan(app: FastAPI):
 
         # 注册处理器
         bot_app.add_handler(CommandHandler("start", start_handler))
-        bot_app.add_handler(CommandHandler("kick", kick_handler))
-        bot_app.add_handler(CommandHandler("mute", mute_handler))
-        bot_app.add_handler(CommandHandler("unmute", unmute_handler))
+        bot_app.add_handler(CommandHandler("k", kick_handler))
+        bot_app.add_handler(CommandHandler("m", mute_handler))
+        bot_app.add_handler(CommandHandler("um", unmute_handler))
         bot_app.add_handler(CommandHandler("records", records_handler))
         bot_app.add_handler(CommandHandler("search", search_handler))
         bot_app.add_handler(CommandHandler("export", export_handler))
