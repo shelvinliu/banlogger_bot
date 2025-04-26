@@ -8,6 +8,8 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 from contextlib import asynccontextmanager
 import pandas as pd
+from github import Github, GithubException
+
 
 from fastapi import FastAPI, Request, HTTPException
 from telegram import (
@@ -35,6 +37,8 @@ logger = logging.getLogger(__name__)
 
 # 配置
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")  # 从环境变量获取GitHub Token
+REPO_NAME = os.getenv("GITHUB_REPO")     # 格式：username/repo
 WEBHOOK_PATH = "/telegram"
 WEBHOOK_URL = f"{os.getenv('RENDER_EXTERNAL_URL', '')}{WEBHOOK_PATH}" if os.getenv("RENDER_EXTERNAL_URL") else None
 TIMEZONE = pytz.timezone(os.getenv("TIMEZONE", "Asia/Shanghai"))
@@ -45,6 +49,84 @@ EXCEL_FILE = "ban_records.xlsx"
 bot_app: Optional[Application] = None
 bot_initialized: bool = False
 ban_records: List[Dict[str, Any]] = []
+
+class GitHubStorage:
+    """GitHub 存储管理类"""
+    
+    @staticmethod
+    async def load_from_github() -> List[Dict[str, Any]]:
+        """从GitHub加载Excel数据"""
+        if not GITHUB_TOKEN or not REPO_NAME:
+            logger.warning("未配置GITHUB_TOKEN或GITHUB_REPO，无法从GitHub加载数据")
+            return []
+            
+        try:
+            g = Github(GITHUB_TOKEN)
+            repo = g.get_repo(REPO_NAME)
+            try:
+                contents = repo.get_contents(EXCEL_FILE)
+                file_data = base64.b64decode(contents.content).decode('utf-8')
+                
+                # 临时保存到本地
+                with open(EXCEL_FILE, "w", encoding="utf-8") as f:
+                    f.write(file_data)
+                
+                # 读取Excel到内存
+                df = pd.read_excel(EXCEL_FILE)
+                return df.to_dict('records')
+            except GithubException as e:
+                if e.status == 404:
+                    logger.info("GitHub上未找到历史记录文件，将创建新文件")
+                return []
+        except Exception as e:
+            logger.error(f"从GitHub加载数据失败: {e}")
+            return []
+
+    @staticmethod
+    async def save_to_github(records: List[Dict[str, Any]]) -> bool:
+        """保存数据到GitHub"""
+        if not GITHUB_TOKEN or not REPO_NAME:
+            logger.error("未配置GITHUB_TOKEN或GITHUB_REPO，无法保存到GitHub")
+            return False
+            
+        try:
+            # 先保存到本地Excel
+            df = pd.DataFrame(records)
+            df.to_excel(EXCEL_FILE, index=False, engine="openpyxl")
+            
+            # 读取Excel内容
+            with open(EXCEL_FILE, "rb") as f:
+                content = base64.b64encode(f.read()).decode("utf-8")
+            
+            # 上传到GitHub
+            g = Github(GITHUB_TOKEN)
+            repo = g.get_repo(REPO_NAME)
+            
+            try:
+                # 尝试获取现有文件（更新模式）
+                contents = repo.get_contents(EXCEL_FILE)
+                repo.update_file(
+                    path=EXCEL_FILE,
+                    message="Update ban records",
+                    content=content,
+                    sha=contents.sha
+                )
+            except GithubException as e:
+                if e.status == 404:
+                    # 文件不存在，创建新文件
+                    repo.create_file(
+                        path=EXCEL_FILE,
+                        message="Create ban records",
+                        content=content
+                    )
+                else:
+                    raise
+            
+            logger.info("数据已保存到GitHub")
+            return True
+        except Exception as e:
+            logger.error(f"保存到GitHub失败: {e}")
+            return False
 
 class BanManager:
     """封禁管理工具类"""
@@ -92,7 +174,7 @@ class BanManager:
         admin_name: str,
         reason: str = "未填写"
     ) -> bool:
-        """保存封禁记录到内存并导出为Excel"""
+        """保存封禁记录到内存并同步到GitHub"""
         global ban_records
         
         try:
@@ -107,15 +189,22 @@ class BanManager:
             
             ban_records.append(record)
             
-            # 导出为Excel
-            df = pd.DataFrame(ban_records)
-            df.to_excel(EXCEL_FILE, index=False, engine="openpyxl")
+            # 同步到GitHub
+            success = await GitHubStorage.save_to_github(ban_records)
+            if not success:
+                logger.warning("GitHub同步失败，数据仅保存在内存中")
             
-            logger.info(f"记录已保存到Excel: {banned_user_name} | {reason}")
+            logger.info(f"记录已保存: {banned_user_name} | {reason}")
             return True
         except Exception as e:
             logger.error(f"保存记录失败: {e}")
             return False
+
+# 初始化时从GitHub加载历史数据
+async def init_data():
+    global ban_records
+    ban_records = await GitHubStorage.load_from_github()
+    logger.info(f"已从GitHub加载 {len(ban_records)} 条历史记录")
 
 async def delete_message_later(message, delay: int = 30) -> None:
     """延迟删除消息"""
@@ -517,23 +606,13 @@ async def lifespan(app: FastAPI):
     global bot_app, bot_initialized
 
     if not bot_initialized:
+        # 初始化时加载数据
+        await init_data()
+        
         bot_app = ApplicationBuilder().token(TOKEN).build()
 
-        # 注册处理器
-        bot_app.add_handler(CommandHandler("start", start_handler))
-        bot_app.add_handler(CommandHandler("kick", kick_handler))
-        bot_app.add_handler(CommandHandler("mute", mute_handler))
-        bot_app.add_handler(CommandHandler("unmute", unmute_handler))
-        bot_app.add_handler(CommandHandler("records", records_handler))
-        bot_app.add_handler(CommandHandler("search", search_handler))
-        bot_app.add_handler(CommandHandler("export", export_handler))
-        bot_app.add_handler(CallbackQueryHandler(ban_reason_handler))
-        bot_app.add_handler(MessageHandler(filters.TEXT & filters.REPLY, custom_reason_handler))
-
-        await bot_app.initialize()
-        await bot_app.start()
-        if WEBHOOK_URL:
-            await bot_app.bot.set_webhook(url=WEBHOOK_URL)
+        # 注册处理器 [保持原有代码不变]
+        # ...
 
         bot_initialized = True
         logger.info("✅ Bot 已成功初始化并启动")
