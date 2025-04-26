@@ -50,56 +50,6 @@ class BanManager:
         except Exception as e:
             print(f"❌ 数据库操作失败: {e}")
             raise
-async def init_supabase():
-    """初始化Supabase客户端"""
-    global supabase_client
-    SUPABASE_URL = os.getenv("SUPABASE_URL")
-    SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-    
-    if not SUPABASE_URL or not SUPABASE_KEY:
-        raise RuntimeError("Supabase URL和KEY必须配置")
-    
-    try:
-        # 使用最简单的初始化方式
-        supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
-        print("✅ Supabase客户端初始化成功")
-        
-        # 测试连接
-        test = supabase_client.table("ban_records").select("*").limit(1).execute()
-        print("✅ Supabase连接测试成功")
-    except Exception as e:
-        print(f"❌ Supabase初始化失败: {e}")
-        raise
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """FastAPI 生命周期管理"""
-    global bot_app, bot_initialized
-    
-    if not TOKEN:
-        raise RuntimeError("TELEGRAM_BOT_TOKEN 环境变量未设置")
-    
-    try:
-        # 先初始化Supabase - 使用最简单的初始化方式
-        await init_supabase()
-        
-        # 初始化机器人
-        bot_app = (
-            Application.builder()
-            .token(TOKEN)
-            .post_init(post_init)
-            .build()
-        )
-        
-        # ... [保持其余初始化代码不变] ...
-        
-    except Exception as e:
-        print(f"❌ 应用启动失败: {e}")
-        raise
-    finally:
-        # 清理代码保持不变
-        pass
 
     @staticmethod
     def get_ban_reasons_keyboard(banned_user_id: int, banned_user_name: str) -> InlineKeyboardMarkup:
@@ -132,7 +82,7 @@ async def lifespan(app: FastAPI):
 
 async def init_supabase():
     """初始化Supabase客户端"""
-    global supabase
+    global supabase_client
     SUPABASE_URL = os.getenv("SUPABASE_URL")
     SUPABASE_KEY = os.getenv("SUPABASE_KEY")
     
@@ -140,12 +90,12 @@ async def init_supabase():
         raise RuntimeError("Supabase URL和KEY必须配置")
     
     try:
-        # 使用较新的初始化方式
-        supabase = create_client(SUPABASE_URL, SUPABASE_KEY, {
-            'auto_refresh_token': False,
-            'persist_session': False
-        })
+        supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
         print("✅ Supabase客户端初始化成功")
+        
+        # 测试连接
+        test = supabase_client.table("ban_records").select("*").limit(1).execute()
+        print("✅ Supabase连接测试成功")
     except Exception as e:
         print(f"❌ Supabase初始化失败: {e}")
         raise
@@ -253,7 +203,7 @@ async def ban_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
     
     try:
-        BanManager.save_to_excel(
+        await BanManager.save_to_db(
             chat_title=query.message.chat.title,
             banned_user_id=banned_user_id,
             banned_user_name=user_name,
@@ -283,7 +233,7 @@ async def custom_reason_handler(update: Update, context: ContextTypes.DEFAULT_TY
         return
     
     try:
-        BanManager.save_to_excel(
+        await BanManager.save_to_db(
             chat_title=pending_data["chat_title"],
             banned_user_id=pending_data["banned_user_id"],
             banned_user_name=pending_data["banned_user_name"],
@@ -383,148 +333,30 @@ async def unmute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         error_msg = await update.message.reply_text(f"❌ 解除禁言失败: {str(e)}")
         asyncio.create_task(delete_message_later(error_msg))
 
-async def excel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /excel command"""
+async def records_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /records command"""
     if not await is_admin(update, context):
         msg = await update.message.reply_text("❌ 只有管理员可以使用此命令")
         asyncio.create_task(delete_message_later(msg))
         return
     
-    if not os.path.exists(EXCEL_FILE):
-        error_msg = await update.message.reply_text("❌ 记录文件不存在")
-        asyncio.create_task(delete_message_later(error_msg))
-        return
-    
     try:
-        with open(EXCEL_FILE, "rb") as file:
-            await update.message.reply_document(
-                document=file,
-                filename="封禁记录.xlsx",
-                caption="📊 封禁记录导出"
-            )
-    except Exception as e:
-        error_msg = await update.message.reply_text(f"❌ 导出失败: {str(e)}")
-        asyncio.create_task(delete_message_later(error_msg))
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """FastAPI 生命周期管理"""
-    global bot_app, bot_initialized
-    
-    if not TOKEN:
-        raise RuntimeError("TELEGRAM_BOT_TOKEN 环境变量未设置")
-    
-    try:
-        # 先初始化Supabase
-        await init_supabase()
+        # 从Supabase获取记录
+        response = supabase_client.table("ban_records").select("*").execute()
+        records = response.data
         
-        # 初始化机器人
-        bot_app = (
-            Application.builder()
-            .token(TOKEN)
-            .post_init(post_init)
-            .build()
-        )
+        if not records:
+            msg = await update.message.reply_text("暂无封禁记录")
+            asyncio.create_task(delete_message_later(msg))
+            return
         
-        # 注册处理器
-        handlers = [
-            CommandHandler("踢", kick_handler),
-            CommandHandler("禁言", mute_handler),
-            CommandHandler("解禁", unmute_handler),
-            CommandHandler("记录", records_handler),
-            CallbackQueryHandler(ban_reason_handler, pattern=r"^ban_reason\|"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, custom_reason_handler)
-        ]
-        
-        for handler in handlers:
-            bot_app.add_handler(handler)
-        
-        # 初始化
-        await bot_app.initialize()
-        
-        # 设置Webhook或轮询
-        if WEBHOOK_URL:
-            await bot_app.bot.delete_webhook(drop_pending_updates=True)
-            await bot_app.bot.set_webhook(
-                url=WEBHOOK_URL,
-                allowed_updates=Update.ALL_TYPES
-            )
-            print(f"✅ Webhook 已设置为: {WEBHOOK_URL}")
-        else:
-            await bot_app.start()
-            print("✅ 机器人以轮询模式启动")
-        
-        bot_initialized = True
-        
-        # 验证机器人
-        try:
-            me = await bot_app.bot.get_me()
-            print(f"🤖 机器人 @{me.username} 初始化成功")
-        except Exception as e:
-            print(f"❌ 无法验证机器人: {e}")
-            raise
-        
-        yield
-        
-    finally:
-        # 清理
-        if bot_app:
-            try:
-                if not WEBHOOK_URL:
-                    await bot_app.stop()
-                await bot_app.shutdown()
-            except Exception as e:
-                print(f"关闭时出错: {e}")
-        bot_initialized = False
-
-async def post_init(application: Application) -> None:
-    """初始化后回调"""
-    print("✅ 机器人初始化完成")
-
-app = FastAPI(lifespan=lifespan)
-
-@app.get("/")
-async def home():
-    """根路由"""
-    return {
-        "status": "运行中",
-        "service": "Telegram封禁管理机器人",
-        "bot_initialized": bot_initialized,
-        "webhook_configured": bool(WEBHOOK_URL)
-    }
-
-@app.post(WEBHOOK_PATH)
-async def process_webhook(request: Request):
-    """处理Webhook请求"""
-    if not bot_app or not bot_initialized:
-        raise HTTPException(status_code=503, detail="机器人未初始化")
-    
-    try:
-        update_data = await request.json()
-        update = Update.de_json(update_data, bot_app.bot)
-        
-        await bot_app.process_update(update)
-        return {"status": "ok"}
-        
-    except json.JSONDecodeError as e:
-        print(f"JSON 解析失败: {e}")
-        raise HTTPException(status_code=400, detail="无效的JSON数据")
-    except Exception as e:
-        print(f"处理更新失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/health")
-async def health_check():
-    """健康检查"""
-    return {
-        "status": "正常",
-        "bot_ready": bot_initialized,
-        "webhook_url": WEBHOOK_URL,
-        "timestamp": datetime.now(TIMEZONE).isoformat()
-    }
-
-if __name__ == "__main__":
-    import uvicorn
-    port = int(os.getenv("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+        # 格式化记录
+        message = "📊 封禁记录:\n\n"
+        for record in records[:10]:  # 限制显示数量
+            message += (
+                f"🕒 {record.get('time', '未知时间')}\n"
+                f"👤 用户: {record.get('banned_user_name', '未知用户')} (ID: {record.get('banned_user_id', '未知')}\n"
+                f"👮 管理员: {record.get('admin_name', '未知')}\n"
+                f"📝 原因: {record.get('reason', '未填写')}\n"
+                f"💬 群组: {record.get('group_name', '未知群组')}\n"
+                "━━━━━━━━━━━━━━\n
