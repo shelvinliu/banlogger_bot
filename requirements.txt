@@ -4,3 +4,5 @@ uvicorn==0.22.0
 openpyxl==3.1.2
 pytz==2023.3
 supabase
+httpx==0.23.3
+
