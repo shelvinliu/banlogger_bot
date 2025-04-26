@@ -172,19 +172,27 @@ class BanManager:
         banned_user_name: str,
         admin_name: str,
         reason: str = "未填写",
-        banned_username: Optional[str] = None  # 新增参数
+        banned_username: Optional[str] = None
     ) -> bool:
-        """保存封禁记录（包含Telegram用户名）"""
-        record = {
-            "time": datetime.now(TIMEZONE).isoformat(),
-            "group_name": chat_title,
-            "banned_user_id": banned_user_id,
-            "banned_user_name": banned_user_name,
-            "banned_username": banned_username or "无",  # 存储用户名，若无则存"无"
-            "admin_name": admin_name,
-            "reason": reason
-        }
-        ban_records.append(record)
+        """保存封禁记录到内存并导出为Excel"""
+        global ban_records
+        
+        try:
+            record = {
+                "time": datetime.now(TIMEZONE).isoformat(),
+                "group_name": chat_title,
+                "banned_user_id": banned_user_id,
+                "banned_user_name": banned_user_name,
+                "banned_username": f"@{banned_username}" if banned_username else "无",
+                "admin_name": admin_name,
+                "reason": reason
+            }
+            
+            ban_records.append(record)
+            
+            # 导出为Excel
+            df = pd.DataFrame(ban_records)
+            df.to_excel(EXCEL_FILE, index=False, engine="openpyxl")
             
             # 同步到GitHub
             success = await GitHubStorage.save_to_github(ban_records)
@@ -283,7 +291,8 @@ async def kick_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         # 保存操作上下文
         context.chat_data["last_ban"] = {
             "target_id": target_user.id,
-            "operator_id": update.effective_user.id
+            "operator_id": update.effective_user.id,
+            "target_username": target_user.username  # 存储username用于后续处理
         }
         
         # 设置自动删除
@@ -320,6 +329,7 @@ async def ban_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         context.user_data["pending_reason"] = {
             "banned_user_id": banned_user_id,
             "banned_user_name": user_name,
+            "banned_username": last_ban.get("target_username"),
             "chat_title": query.message.chat.title,
             "admin_name": query.from_user.full_name
         }
@@ -333,6 +343,7 @@ async def ban_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             chat_title=query.message.chat.title,
             banned_user_id=banned_user_id,
             banned_user_name=user_name,
+            banned_username=last_ban.get("target_username"),
             admin_name=query.from_user.full_name,
             reason=reason
         )
@@ -369,6 +380,7 @@ async def custom_reason_handler(update: Update, context: ContextTypes.DEFAULT_TY
             chat_title=pending_data["chat_title"],
             banned_user_id=pending_data["banned_user_id"],
             banned_user_name=pending_data["banned_user_name"],
+            banned_username=pending_data["banned_username"],
             admin_name=pending_data["admin_name"],
             reason=reason
         )
@@ -496,7 +508,9 @@ async def records_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             record_time = datetime.fromisoformat(record["time"]).astimezone(TIMEZONE).strftime("%Y-%m-%d %H:%M")
             message += (
                 f"🕒 {record_time}\n"
-                f"👤 用户: {record.get('banned_user_name', '未知')} (ID: {record.get('banned_user_id', '未知')})\n"
+                f"👤 用户: {record.get('banned_user_name', '未知')} "
+                f"(ID: {record.get('banned_user_id', '未知')}) "
+                f"[{record.get('banned_username', '无')}]\n"
                 f"👮 管理员: {record.get('admin_name', '未知')}\n"
                 f"📝 原因: {record.get('reason', '未填写')}\n"
                 f"💬 群组: {record.get('group_name', '未知')}\n"
@@ -543,7 +557,9 @@ async def search_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             record_time = datetime.fromisoformat(record["time"]).astimezone(TIMEZONE).strftime("%Y-%m-%d %H:%M")
             message += (
                 f"🕒 {record_time}\n"
-                f"👤 用户: {record.get('banned_user_name', '未知')} (ID: {record.get('banned_user_id', '未知')})\n"
+                f"👤 用户: {record.get('banned_user_name', '未知')} "
+                f"(ID: {record.get('banned_user_id', '未知')}) "
+                f"[{record.get('banned_username', '无')}]\n"
                 f"👮 管理员: {record.get('admin_name', '未知')}\n"
                 f"📝 原因: {record.get('reason', '未填写')}\n"
                 f"💬 群组: {record.get('group_name', '未知')}\n"
@@ -575,6 +591,9 @@ async def export_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         
         # 确保Excel文件是最新的
         df = pd.DataFrame(ban_records)
+        # 确保所有字段都存在
+        if "banned_username" not in df.columns:
+            df["banned_username"] = "无"
         df.to_excel(EXCEL_FILE, index=False, engine="openpyxl")
         
         # 发送文件
@@ -638,6 +657,8 @@ router = APIRouter()
 @router.api_route("/health", methods=["GET", "HEAD"])
 async def health_check():
     return {"status": "ok"}
+
+app.include_router(router)
 
 @app.post(WEBHOOK_PATH)
 async def telegram_webhook(req: Request):
