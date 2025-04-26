@@ -171,22 +171,20 @@ class BanManager:
         banned_user_id: int,
         banned_user_name: str,
         admin_name: str,
-        reason: str = "未填写"
+        reason: str = "未填写",
+        banned_username: Optional[str] = None  # 新增参数
     ) -> bool:
-        """保存封禁记录到内存并同步到GitHub"""
-        global ban_records
-        
-        try:
-            record = {
-                "time": datetime.now(TIMEZONE).isoformat(),
-                "group_name": chat_title,
-                "banned_user_id": banned_user_id,
-                "banned_user_name": banned_user_name,
-                "admin_name": admin_name,
-                "reason": reason
-            }
-            
-            ban_records.append(record)
+        """保存封禁记录（包含Telegram用户名）"""
+        record = {
+            "time": datetime.now(TIMEZONE).isoformat(),
+            "group_name": chat_title,
+            "banned_user_id": banned_user_id,
+            "banned_user_name": banned_user_name,
+            "banned_username": banned_username or "无",  # 存储用户名，若无则存"无"
+            "admin_name": admin_name,
+            "reason": reason
+        }
+        ban_records.append(record)
             
             # 同步到GitHub
             success = await GitHubStorage.save_to_github(ban_records)
