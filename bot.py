@@ -635,7 +635,8 @@ async def lifespan(app: FastAPI):
 # FastAPI应用实例
 app = FastAPI(lifespan=lifespan)
 
-@app.get("/health")
+
+@router.api_route("/health", methods=["GET", "HEAD"])
 async def health_check():
     return {"status": "ok"}
 
