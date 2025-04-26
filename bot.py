@@ -5,8 +5,9 @@ import pytz
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from contextlib import asynccontextmanager
+import pandas as pd
 
 from fastapi import FastAPI, Request, HTTPException
 from telegram import (
@@ -24,7 +25,6 @@ from telegram.ext import (
     MessageHandler,
     filters
 )
-from supabase import create_client, Client
 
 # 配置日志
 logging.basicConfig(
@@ -39,11 +39,12 @@ WEBHOOK_PATH = "/telegram"
 WEBHOOK_URL = f"{os.getenv('RENDER_EXTERNAL_URL', '')}{WEBHOOK_PATH}" if os.getenv("RENDER_EXTERNAL_URL") else None
 TIMEZONE = pytz.timezone(os.getenv("TIMEZONE", "Asia/Shanghai"))
 MAX_RECORDS_DISPLAY = 10
+EXCEL_FILE = "ban_records.xlsx"
 
 # 全局变量
 bot_app: Optional[Application] = None
 bot_initialized: bool = False
-supabase_client: Optional[Client] = None
+ban_records: List[Dict[str, Any]] = []
 
 class BanManager:
     """封禁管理工具类"""
@@ -80,15 +81,8 @@ class BanManager:
     @classmethod
     async def get_ban_count(cls, user_id: int) -> int:
         """获取用户被封禁次数"""
-        try:
-            response = supabase_client.table("ban_records") \
-                .select("count", count="exact") \
-                .eq("banned_user_id", user_id) \
-                .execute()
-            return response.count or 0
-        except Exception as e:
-            logger.error(f"获取封禁次数失败: {e}")
-            return 0
+        global ban_records
+        return sum(1 for record in ban_records if record.get("banned_user_id") == user_id)
 
     @staticmethod
     async def save_to_db(
@@ -98,9 +92,11 @@ class BanManager:
         admin_name: str,
         reason: str = "未填写"
     ) -> bool:
-        """保存封禁记录到数据库"""
+        """保存封禁记录到内存并导出为Excel"""
+        global ban_records
+        
         try:
-            data = {
+            record = {
                 "time": datetime.now(TIMEZONE).isoformat(),
                 "group_name": chat_title,
                 "banned_user_id": banned_user_id,
@@ -109,32 +105,17 @@ class BanManager:
                 "reason": reason
             }
             
-            response = supabase_client.table("ban_records").insert(data).execute()
+            ban_records.append(record)
             
-            if getattr(response, 'data', None):
-                logger.info(f"记录已保存: {banned_user_name} | {reason}")
-                return True
-            logger.error("保存到数据库失败: 无返回数据")
-            return False
+            # 导出为Excel
+            df = pd.DataFrame(ban_records)
+            df.to_excel(EXCEL_FILE, index=False, engine="openpyxl")
+            
+            logger.info(f"记录已保存到Excel: {banned_user_name} | {reason}")
+            return True
         except Exception as e:
-            logger.error(f"数据库操作失败: {e}")
+            logger.error(f"保存记录失败: {e}")
             return False
-
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-
-supabase_client = None
-
-async def init_supabase():
-    global supabase_client
-    try:
-        if not SUPABASE_URL or not SUPABASE_KEY:
-            raise ValueError("SUPABASE_URL or SUPABASE_KEY 环境变量未设置")
-        supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
-        logging.info("✅ Supabase 初始化成功")
-    except Exception as e:
-        logging.error(f"❌ Supabase 初始化失败: {e}")
-
 
 async def delete_message_later(message, delay: int = 30) -> None:
     """延迟删除消息"""
@@ -168,7 +149,8 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "/mute - 禁言用户(回复消息并指定时间)\n"
         "/unmute - 解除禁言\n"
         "/records - 查看封禁记录\n"
-        "/search <关键词> - 搜索封禁记录\n\n"
+        "/search <关键词> - 搜索封禁记录\n"
+        "/export - 导出封禁记录为Excel文件\n\n"
         "请确保机器人有管理员权限!"
     )
     
@@ -418,22 +400,19 @@ async def records_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         asyncio.create_task(delete_message_later(msg))
         return
     
+    global ban_records
+    
     try:
-        response = supabase_client.table("ban_records") \
-            .select("*") \
-            .order("time", desc=True) \
-            .limit(MAX_RECORDS_DISPLAY) \
-            .execute()
-        
-        records = response.data
-        
-        if not records:
+        if not ban_records:
             msg = await update.message.reply_text("暂无封禁记录")
             asyncio.create_task(delete_message_later(msg, delay=10))
             return
         
+        # 获取最近的记录
+        recent_records = sorted(ban_records, key=lambda x: x.get("time", ""), reverse=True)[:MAX_RECORDS_DISPLAY]
+        
         message = "📊 最近封禁记录:\n\n"
-        for record in records:
+        for record in recent_records:
             record_time = datetime.fromisoformat(record["time"]).astimezone(TIMEZONE).strftime("%Y-%m-%d %H:%M")
             message += (
                 f"🕒 {record_time}\n"
@@ -465,24 +444,22 @@ async def search_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     keyword = " ".join(context.args)
+    global ban_records
 
     try:
-        response = supabase_client.table("ban_records") \
-            .select("*") \
-            .ilike("reason", f"%{keyword}%") \
-            .order("time", desc=True) \
-            .limit(MAX_RECORDS_DISPLAY) \
-            .execute()
+        # 在内存中搜索记录
+        matched_records = [
+            record for record in ban_records
+            if keyword.lower() in record.get("reason", "").lower()
+        ]
 
-        records = response.data
-
-        if not records:
+        if not matched_records:
             msg = await update.message.reply_text("未找到匹配的封禁记录")
             asyncio.create_task(delete_message_later(msg, delay=10))
             return
 
         message = f"🔍 搜索结果 (关键词: {keyword}):\n\n"
-        for record in records:
+        for record in matched_records[:MAX_RECORDS_DISPLAY]:
             record_time = datetime.fromisoformat(record["time"]).astimezone(TIMEZONE).strftime("%Y-%m-%d %H:%M")
             message += (
                 f"🕒 {record_time}\n"
@@ -501,14 +478,45 @@ async def search_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         asyncio.create_task(delete_message_later(error_msg))
         logger.error(f"搜索封禁记录失败: {e}")
 
+async def export_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """处理/export命令，发送Excel文件"""
+    if not await is_admin(update, context):
+        msg = await update.message.reply_text("❌ 只有管理员可以使用此命令")
+        asyncio.create_task(delete_message_later(msg))
+        return
+    
+    global ban_records
+    
+    try:
+        if not ban_records:
+            msg = await update.message.reply_text("暂无封禁记录可导出")
+            asyncio.create_task(delete_message_later(msg))
+            return
+        
+        # 确保Excel文件是最新的
+        df = pd.DataFrame(ban_records)
+        df.to_excel(EXCEL_FILE, index=False, engine="openpyxl")
+        
+        # 发送文件
+        with open(EXCEL_FILE, "rb") as file:
+            await update.message.reply_document(
+                document=file,
+                caption="📊 封禁记录导出",
+                filename="ban_records.xlsx"
+            )
+        
+        logger.info("封禁记录已导出")
+    except Exception as e:
+        error_msg = await update.message.reply_text(f"❌ 导出失败: {str(e)}")
+        asyncio.create_task(delete_message_later(error_msg))
+        logger.error(f"导出封禁记录失败: {e}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """FastAPI生命周期管理"""
     global bot_app, bot_initialized
 
     if not bot_initialized:
-        await init_supabase()
-
         bot_app = ApplicationBuilder().token(TOKEN).build()
 
         # 注册处理器
@@ -518,6 +526,7 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(CommandHandler("unmute", unmute_handler))
         bot_app.add_handler(CommandHandler("records", records_handler))
         bot_app.add_handler(CommandHandler("search", search_handler))
+        bot_app.add_handler(CommandHandler("export", export_handler))
         bot_app.add_handler(CallbackQueryHandler(ban_reason_handler))
         bot_app.add_handler(MessageHandler(filters.TEXT & filters.REPLY, custom_reason_handler))
 
