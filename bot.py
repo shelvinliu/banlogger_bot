@@ -547,7 +547,9 @@ async def lifespan(app: FastAPI):
 
 # FastAPI应用实例
 app = FastAPI(lifespan=lifespan)
-
+@app.get("/health")  # 确保这个路由存在
+async def health_check():
+    return {"status": "ok"}
 @app.post(WEBHOOK_PATH)
 async def telegram_webhook(req: Request):
     """Telegram Webhook入口"""
