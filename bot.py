@@ -56,13 +56,38 @@ class GoogleSheetsStorage:
     async def _get_worksheet() -> gspread.Worksheet:
         """获取Google Sheet工作表"""
         try:
-            # 解码Base64编码的凭证 - 确保正确处理padding
-            creds_json = base64.b64decode(GOOGLE_SHEETS_CREDENTIALS + '=' * (-len(GOOGLE_SHEETS_CREDENTIALS) % 4)).decode('utf-8')
-            creds_dict = json.loads(creds_json)
+            # 处理可能存在的Base64编码问题
+            if not GOOGLE_SHEETS_CREDENTIALS:
+                raise ValueError("GOOGLE_SHEETS_CREDENTIALS环境变量未设置")
+            
+            # 尝试直接加载JSON（如果已经是JSON字符串）
+            try:
+                creds_dict = json.loads(GOOGLE_SHEETS_CREDENTIALS)
+            except json.JSONDecodeError:
+                # 如果是Base64编码，则解码
+                try:
+                    # 添加必要的padding
+                    padding = len(GOOGLE_SHEETS_CREDENTIALS) % 4
+                    if padding:
+                        creds_json = GOOGLE_SHEETS_CREDENTIALS + '=' * (4 - padding)
+                    else:
+                        creds_json = GOOGLE_SHEETS_CREDENTIALS
+                    
+                    # 解码Base64
+                    decoded_bytes = base64.b64decode(creds_json)
+                    # 尝试UTF-8解码，如果失败则直接使用bytes
+                    try:
+                        creds_json_str = decoded_bytes.decode('utf-8')
+                        creds_dict = json.loads(creds_json_str)
+                    except UnicodeDecodeError:
+                        creds_dict = json.loads(decoded_bytes)
+                except Exception as e:
+                    logger.error(f"解码凭证失败: {e}")
+                    raise ValueError("无效的GOOGLE_SHEETS_CREDENTIALS格式")
             
             # 使用服务账户凭证
             scope = ['https://spreadsheets.google.com/feeds',
-                     'https://www.googleapis.com/auth/drive']
+                    'https://www.googleapis.com/auth/drive']
             credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
             gc = gspread.authorize(credentials)
             
@@ -74,43 +99,8 @@ class GoogleSheetsStorage:
             raise
 
     @staticmethod
-    async def load_from_sheet() -> List[Dict[str, Any]]:
-        """从Google Sheet加载数据"""
-        if not GOOGLE_SHEETS_CREDENTIALS:
-            logger.warning("未配置GOOGLE_SHEETS_CREDENTIALS，无法从Google Sheet加载数据")
-            return []
-            
-        try:
-            worksheet = await GoogleSheetsStorage._get_worksheet()
-            records = worksheet.get_all_records()
-            
-            # 确保列名正确
-            expected_columns = ["time", "group_name", "banned_user_id", 
-                               "banned_user_name", "banned_username", 
-                               "admin_name", "reason"]
-            
-            if not records:
-                logger.info("Google Sheet为空，将创建新记录")
-                return []
-                
-            # 检查列名是否匹配
-            first_record = records[0]
-            if not all(col in first_record for col in expected_columns):
-                logger.warning("Google Sheet列名不匹配，可能需要修复")
-                return []
-                
-            return records
-        except Exception as e:
-            logger.error(f"从Google Sheet加载数据失败: {e}")
-            return []
-
-    @staticmethod
     async def save_to_sheet(records: List[Dict[str, Any]]) -> bool:
         """保存数据到Google Sheet"""
-        if not GOOGLE_SHEETS_CREDENTIALS:
-            logger.error("未配置GOOGLE_SHEETS_CREDENTIALS，无法保存到Google Sheet")
-            return False
-            
         try:
             worksheet = await GoogleSheetsStorage._get_worksheet()
             
@@ -127,7 +117,7 @@ class GoogleSheetsStorage:
             
             # 添加数据行
             for record in records:
-                row = [record.get(col, "") for col in expected_columns]
+                row = [str(record.get(col, "")) for col in expected_columns]
                 worksheet.append_row(row)
             
             logger.info("数据已保存到Google Sheet")
@@ -135,7 +125,6 @@ class GoogleSheetsStorage:
         except Exception as e:
             logger.error(f"保存到Google Sheet失败: {e}")
             return False
-
 class BanManager:
     """封禁管理工具类"""
     
