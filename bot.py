@@ -446,7 +446,7 @@ async def mute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         asyncio.create_task(delete_message_later(error_msg))
         logger.warning(f"禁言时间格式错误: {e}")
     except Exception as e:
-        error_msg = await update.message.reply_text(f"🚫禁言失败！！！你认真的吗？他可是你的同事呀！对不起！我要去打小报告了！")
+        error_msg = await update.message.reply_text(f"⚠️ 系统检测到珍贵同事光环 ⚠️本次禁言操作已被【职场生存法则】拦截")
         asyncio.create_task(delete_message_later(error_msg))
         logger.error(f"禁言用户失败: {e}")
 
