@@ -122,9 +122,20 @@ class GoogleSheetsStorage:
     @staticmethod
     def _auth_with_dict(creds_dict: dict) -> gspread.Worksheet:
         """使用字典凭证认证"""
-        scope = ['https://spreadsheets.google.com/feeds',
-                'https://www.googleapis.com/auth/drive']
-        credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        # More flexible credential type checking
+        if not isinstance(creds_dict, dict):
+            raise ValueError("Invalid credentials format - expected dictionary")
+        
+        # Accept either service account or API key
+        if creds_dict.get("type") == "service_account":
+            scope = ['https://spreadsheets.google.com/feeds',
+                    'https://www.googleapis.com/auth/drive']
+            credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        elif "api_key" in creds_dict:  # Alternative authentication method
+            gc = gspread.service_account_from_dict(creds_dict)
+        else:
+            raise ValueError("Unsupported credential type - must be service account or API key")
+        
         gc = gspread.authorize(credentials)
         return gc.open(GOOGLE_SHEET_NAME).sheet1
 
