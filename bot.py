@@ -56,8 +56,8 @@ class GoogleSheetsStorage:
     async def _get_worksheet() -> gspread.Worksheet:
         """获取Google Sheet工作表"""
         try:
-            # 解码Base64编码的凭证
-            creds_json = base64.b64decode(GOOGLE_SHEETS_CREDENTIALS).decode('utf-8')
+            # 解码Base64编码的凭证 - 确保正确处理padding
+            creds_json = base64.b64decode(GOOGLE_SHEETS_CREDENTIALS + '=' * (-len(GOOGLE_SHEETS_CREDENTIALS) % 4)).decode('utf-8')
             creds_dict = json.loads(creds_json)
             
             # 使用服务账户凭证
@@ -663,9 +663,9 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(CallbackQueryHandler(ban_reason_handler))
         bot_app.add_handler(MessageHandler(filters.TEXT & filters.REPLY, custom_reason_handler))
         bot_app.add_handler(MessageHandler(
-            filters.TEXT & (~filters.COMMAND) & filters.Regex(r'^(gm|早|早上好|早安|good morning)$', re.IGNORECASE), 
+            filters.TEXT & (~filters.COMMAND) & filters.Regex(r'(?i)^(gm|早|早上好|早安|good morning)$'),
             morning_greeting_handler
-        ))        
+        ))   
         await bot_app.initialize()
         await bot_app.start()
         if WEBHOOK_URL:
