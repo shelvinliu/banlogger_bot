@@ -87,39 +87,55 @@ class GoogleSheetsStorage:
     async def _get_worksheet() -> gspread.Worksheet:
         """获取Google Sheet工作表"""
         try:
-            # 处理凭证解码
             if not GOOGLE_SHEETS_CREDENTIALS:
                 raise ValueError("GOOGLE_SHEETS_CREDENTIALS环境变量未设置")
             
-            # 尝试直接加载JSON（如果已经是JSON字符串）
+            # 方法1：直接使用JSON文件内容
             try:
                 creds_dict = json.loads(GOOGLE_SHEETS_CREDENTIALS)
-            except json.JSONDecodeError:
-                # 如果是Base64编码，则解码
-                try:
-                    # 添加必要的padding
-                    padding = len(GOOGLE_SHEETS_CREDENTIALS) % 4
-                    creds_json = GOOGLE_SHEETS_CREDENTIALS + '=' * (4 - padding) if padding else GOOGLE_SHEETS_CREDENTIALS
+                if not isinstance(creds_dict, dict):
+                    raise ValueError("凭证不是有效的JSON对象")
+                
+                # 验证是否是服务账户凭证
+                if creds_dict.get("type") != "service_account":
+                    raise ValueError("凭证类型不是service_account")
                     
-                    # 解码Base64
-                    decoded_bytes = base64.b64decode(creds_json)
-                    creds_dict = json.loads(decoded_bytes.decode('utf-8'))
-                except Exception as e:
-                    logger.error(f"解码凭证失败: {e}")
-                    raise ValueError("无效的GOOGLE_SHEETS_CREDENTIALS格式")
+                return GoogleSheetsStorage._auth_with_dict(creds_dict)
             
-            # 使用服务账户凭证
-            scope = ['https://spreadsheets.google.com/feeds',
-                    'https://www.googleapis.com/auth/drive']
-            credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-            gc = gspread.authorize(credentials)
-            
-            # 打开工作表
-            worksheet = gc.open(GOOGLE_SHEET_NAME).sheet1
-            return worksheet
+            except json.JSONDecodeError:
+                # 方法2：尝试作为文件路径处理
+                if os.path.exists(GOOGLE_SHEETS_CREDENTIALS):
+                    return GoogleSheetsStorage._auth_with_file(GOOGLE_SHEETS_CREDENTIALS)
+                
+                # 方法3：尝试Base64解码
+                try:
+                    decoded = base64.b64decode(GOOGLE_SHEETS_CREDENTIALS)
+                    creds_dict = json.loads(decoded)
+                    return GoogleSheetsStorage._auth_with_dict(creds_dict)
+                except:
+                    raise ValueError("无法解析GOOGLE_SHEETS_CREDENTIALS")
+                    
         except Exception as e:
             logger.error(f"获取Google Sheet失败: {e}")
             raise
+
+    @staticmethod
+    def _auth_with_dict(creds_dict: dict) -> gspread.Worksheet:
+        """使用字典凭证认证"""
+        scope = ['https://spreadsheets.google.com/feeds',
+                'https://www.googleapis.com/auth/drive']
+        credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        gc = gspread.authorize(credentials)
+        return gc.open(GOOGLE_SHEET_NAME).sheet1
+
+    @staticmethod
+    def _auth_with_file(file_path: str) -> gspread.Worksheet:
+        """使用文件路径认证"""
+        scope = ['https://spreadsheets.google.com/feeds',
+                'https://www.googleapis.com/auth/drive']
+        credentials = ServiceAccountCredentials.from_json_keyfile_name(file_path, scope)
+        gc = gspread.authorize(credentials)
+        return gc.open(GOOGLE_SHEET_NAME).sheet1
 
     @staticmethod
     async def save_to_sheet(records: List[Dict[str, Any]]) -> bool:
