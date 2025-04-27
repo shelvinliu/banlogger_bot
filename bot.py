@@ -53,10 +53,41 @@ ban_records: List[Dict[str, Any]] = []
 
 class GoogleSheetsStorage:
     @staticmethod
+    async def load_from_sheet() -> List[Dict[str, Any]]:
+        """从Google Sheet加载数据"""
+        if not GOOGLE_SHEETS_CREDENTIALS:
+            logger.warning("未配置GOOGLE_SHEETS_CREDENTIALS，无法从Google Sheet加载数据")
+            return []
+            
+        try:
+            worksheet = await GoogleSheetsStorage._get_worksheet()
+            records = worksheet.get_all_records()
+            
+            # 确保列名正确
+            expected_columns = ["time", "group_name", "banned_user_id", 
+                              "banned_user_name", "banned_username", 
+                              "admin_name", "reason"]
+            
+            if not records:
+                logger.info("Google Sheet为空，将创建新记录")
+                return []
+                
+            # 检查列名是否匹配
+            first_record = records[0] if records else {}
+            if not all(col in first_record for col in expected_columns):
+                logger.warning("Google Sheet列名不匹配，可能需要修复")
+                return []
+                
+            return records
+        except Exception as e:
+            logger.error(f"从Google Sheet加载数据失败: {e}")
+            return []
+
+    @staticmethod
     async def _get_worksheet() -> gspread.Worksheet:
         """获取Google Sheet工作表"""
         try:
-            # 处理可能存在的Base64编码问题
+            # 处理凭证解码
             if not GOOGLE_SHEETS_CREDENTIALS:
                 raise ValueError("GOOGLE_SHEETS_CREDENTIALS环境变量未设置")
             
@@ -68,19 +99,11 @@ class GoogleSheetsStorage:
                 try:
                     # 添加必要的padding
                     padding = len(GOOGLE_SHEETS_CREDENTIALS) % 4
-                    if padding:
-                        creds_json = GOOGLE_SHEETS_CREDENTIALS + '=' * (4 - padding)
-                    else:
-                        creds_json = GOOGLE_SHEETS_CREDENTIALS
+                    creds_json = GOOGLE_SHEETS_CREDENTIALS + '=' * (4 - padding) if padding else GOOGLE_SHEETS_CREDENTIALS
                     
                     # 解码Base64
                     decoded_bytes = base64.b64decode(creds_json)
-                    # 尝试UTF-8解码，如果失败则直接使用bytes
-                    try:
-                        creds_json_str = decoded_bytes.decode('utf-8')
-                        creds_dict = json.loads(creds_json_str)
-                    except UnicodeDecodeError:
-                        creds_dict = json.loads(decoded_bytes)
+                    creds_dict = json.loads(decoded_bytes.decode('utf-8'))
                 except Exception as e:
                     logger.error(f"解码凭证失败: {e}")
                     raise ValueError("无效的GOOGLE_SHEETS_CREDENTIALS格式")
