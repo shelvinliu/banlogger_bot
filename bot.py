@@ -84,39 +84,28 @@ class GoogleSheetsStorage:
             return []
 
     @staticmethod
-    async def _get_worksheet() -> gspread.Worksheet:
-        """获取Google Sheet工作表"""
+    async def _get_worksheet():
         try:
-            if not GOOGLE_SHEETS_CREDENTIALS:
-                raise ValueError("GOOGLE_SHEETS_CREDENTIALS环境变量未设置")
+            creds_dict = json.loads(base64.b64decode(GOOGLE_SHEETS_CREDENTIALS).decode())
+            scope = ['https://spreadsheets.google.com/feeds',
+                    'https://www.googleapis.com/auth/drive']
             
-            # 方法1：直接使用JSON文件内容
+            # 确保使用正确的认证方式
+            credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+            gc = gspread.authorize(credentials)
+            
+            # 处理表格不存在的情况
             try:
-                creds_dict = json.loads(GOOGLE_SHEETS_CREDENTIALS)
-                if not isinstance(creds_dict, dict):
-                    raise ValueError("凭证不是有效的JSON对象")
+                return gc.open(GOOGLE_SHEET_NAME).sheet1
+            except gspread.SpreadsheetNotFound:
+                # 自动创建表格
+                sh = gc.create(GOOGLE_SHEET_NAME)
+                # 分享给服务账号邮箱（重要！）
+                sh.share(creds_dict["client_email"], perm_type="user", role="writer")
+                return sh.sheet1
                 
-                # 验证是否是服务账户凭证
-                if creds_dict.get("type") != "service_account":
-                    raise ValueError("凭证类型不是service_account")
-                    
-                return GoogleSheetsStorage._auth_with_dict(creds_dict)
-            
-            except json.JSONDecodeError:
-                # 方法2：尝试作为文件路径处理
-                if os.path.exists(GOOGLE_SHEETS_CREDENTIALS):
-                    return GoogleSheetsStorage._auth_with_file(GOOGLE_SHEETS_CREDENTIALS)
-                
-                # 方法3：尝试Base64解码
-                try:
-                    decoded = base64.b64decode(GOOGLE_SHEETS_CREDENTIALS)
-                    creds_dict = json.loads(decoded)
-                    return GoogleSheetsStorage._auth_with_dict(creds_dict)
-                except:
-                    raise ValueError("无法解析GOOGLE_SHEETS_CREDENTIALS")
-                    
         except Exception as e:
-            logger.error(f"获取Google Sheet失败: {e}")
+            logger.error(f"Google Sheets 初始化失败: {e}")
             raise
 
     @staticmethod
