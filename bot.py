@@ -684,41 +684,43 @@ async def export_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """FastAPI生命周期管理"""
     global bot_app, bot_initialized, ban_records
     
-    # 检查必要环境变量
-    required_env_vars = ["TELEGRAM_BOT_TOKEN", "GOOGLE_SHEETS_CREDENTIALS"]
-    missing_vars = [var for var in required_env_vars if not os.getenv(var)]
-    if missing_vars:
-        raise ValueError(f"缺少必要环境变量: {', '.join(missing_vars)}")
+    # 验证环境变量
+    if not TOKEN:
+        raise ValueError("TELEGRAM_BOT_TOKEN环境变量未设置")
     
+    # 尝试连接Google Sheets
+    if GOOGLE_SHEETS_CREDENTIALS:
+        try:
+            logger.info("正在验证Google Sheets连接...")
+            worksheet = await GoogleSheetsStorage._get_worksheet()
+            logger.info("Google Sheets连接成功")
+        except Exception as e:
+            logger.error(f"Google Sheets连接失败: {e}")
+            if input("继续运行而不使用Google Sheets? (y/n): ").lower() != 'y':
+                raise
+    else:
+        logger.warning("未配置GOOGLE_SHEETS_CREDENTIALS，将仅使用内存存储")
+
     if not bot_initialized:
         try:
-            # 从Google Sheet加载数据
             ban_records = await GoogleSheetsStorage.load_from_sheet()
             logger.info(f"从Google Sheet加载了 {len(ban_records)} 条历史记录")
         except Exception as e:
             logger.error(f"加载历史记录失败: {e}")
             ban_records = []
-        
+
         # 初始化bot
         bot_app = ApplicationBuilder().token(TOKEN).build()
-
-        # 注册处理器
-        bot_app.add_handler(CommandHandler("start", start_handler))
-        bot_app.add_handler(CommandHandler("k", kick_handler))
-        bot_app.add_handler(CommandHandler("m", mute_handler))
-        bot_app.add_handler(CommandHandler("um", unmute_handler))
-        bot_app.add_handler(CommandHandler("records", records_handler))
-        bot_app.add_handler(CommandHandler("search", search_handler))
-        bot_app.add_handler(CommandHandler("export", export_handler))
-        bot_app.add_handler(CallbackQueryHandler(ban_reason_handler))
-        bot_app.add_handler(MessageHandler(filters.TEXT & filters.REPLY, custom_reason_handler))
+        
+        # 注册处理器（使用修复后的正则表达式）
         bot_app.add_handler(MessageHandler(
-            filters.TEXT & (~filters.COMMAND) & filters.Regex(r'^(?i)(gm|早|早上好|早安|good morning)$'),
+            filters.TEXT & (~filters.COMMAND) & filters.Regex(r'(?i)^(gm|早|早上好|早安|good morning)$'),
             morning_greeting_handler
         ))
+        
+        # ... 其他处理器注册 ...
         
         await bot_app.initialize()
         await bot_app.start()
@@ -726,14 +728,12 @@ async def lifespan(app: FastAPI):
             await bot_app.bot.set_webhook(url=WEBHOOK_URL)
 
         bot_initialized = True
-        logger.info("✅ Bot 已成功初始化并启动")
     
     yield
-
+    
     if bot_app:
         await bot_app.stop()
         await bot_app.shutdown()
-        logger.info("✅ Bot 已停止")
 
 # FastAPI应用实例
 app = FastAPI(lifespan=lifespan)
