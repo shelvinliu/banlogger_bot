@@ -50,8 +50,6 @@ bot_initialized: bool = False
 ban_records: List[Dict[str, Any]] = []
 
 class GitHubStorage:
-    """GitHub 存储管理类"""
-    
     @staticmethod
     async def load_from_github() -> List[Dict[str, Any]]:
         """从GitHub加载Excel数据"""
@@ -70,8 +68,13 @@ class GitHubStorage:
                 with open(EXCEL_FILE, "wb") as f:
                     f.write(file_data)
                 
-                # 读取Excel到内存
-                df = pd.read_excel(EXCEL_FILE)
+                # 读取Excel到内存（显式指定引擎）
+                try:
+                    df = pd.read_excel(EXCEL_FILE, engine="openpyxl")
+                except Exception as e:
+                    logger.warning(f"使用openpyxl引擎失败，尝试其他引擎: {e}")
+                    df = pd.read_excel(EXCEL_FILE, engine="xlrd")
+                
                 return df.to_dict('records')
             except GithubException as e:
                 if e.status == 404:
@@ -233,9 +236,9 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     user = update.effective_user
     help_text = (
         "👮 封禁管理机器人使用说明:\n\n"
-        "/kick - 踢出用户(回复消息使用)\n"
-        "/mute - 禁言用户(回复消息并指定时间)\n"
-        "/unmute - 解除禁言\n"
+        "/k - 踢出用户(回复消息使用)\n"
+        "/m - 禁言用户(回复消息并指定时间)\n"
+        "/um - 解除禁言\n"
         "/records - 查看封禁记录\n"
         "/search <关键词> - 搜索封禁记录\n"
         "/export - 导出封禁记录为Excel文件\n\n"
