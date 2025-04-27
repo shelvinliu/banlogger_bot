@@ -65,16 +65,30 @@ class GitHubStorage:
                 contents = repo.get_contents(EXCEL_FILE)
                 file_data = base64.b64decode(contents.content)
                 
+                # 检查文件是否为空
+                if not file_data:
+                    logger.info("Excel文件为空，将创建新记录")
+                    return []
+                    
                 # 临时保存到本地
                 with open(EXCEL_FILE, "wb") as f:
                     f.write(file_data)
                 
-                # 读取Excel到内存（显式指定引擎）
+                # 尝试多种读取方式
                 try:
                     df = pd.read_excel(EXCEL_FILE, engine="openpyxl")
                 except Exception as e:
-                    logger.warning(f"使用openpyxl引擎失败，尝试其他引擎: {e}")
-                    df = pd.read_excel(EXCEL_FILE, engine="xlrd")
+                    logger.warning(f"使用openpyxl引擎失败: {e}")
+                    try:
+                        df = pd.read_csv(EXCEL_FILE)  # 尝试作为CSV读取
+                    except Exception as e:
+                        logger.error(f"读取文件失败: {e}")
+                        # 创建空DataFrame保持结构
+                        df = pd.DataFrame(columns=[
+                            "time", "group_name", "banned_user_id",
+                            "banned_user_name", "banned_username",
+                            "admin_name", "reason"
+                        ])
                 
                 return df.to_dict('records')
             except GithubException as e:
@@ -474,8 +488,6 @@ async def morning_greeting_handler(update: Update, context: ContextTypes.DEFAULT
         reply += "\n\n🎁 彩蛋：你是今天第{}个说早安的天使~".format(random.randint(1,100))
     
     await update.message.reply_text(reply)
-    
-    # 记录日志（温馨版）
     logger.info(f"🌅 向 {user.full_name} 发送了早安问候")
     
 async def unmute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -664,7 +676,10 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(CommandHandler("export", export_handler))
         bot_app.add_handler(CallbackQueryHandler(ban_reason_handler))
         bot_app.add_handler(MessageHandler(filters.TEXT & filters.REPLY, custom_reason_handler))
-        bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND) & filters.Regex(r'^(?i)(gm|早|早上好|早安|good morning)'), morning_greeting_handler))
+        bot_app.add_handler(MessageHandler(
+            filters.TEXT & (~filters.COMMAND) & filters.Regex(r'^(gm|早|早上好|早安|good morning)$', re.IGNORECASE), 
+            morning_greeting_handler
+        ))        
         await bot_app.initialize()
         await bot_app.start()
         if WEBHOOK_URL:
