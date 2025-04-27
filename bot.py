@@ -2,6 +2,7 @@ import os
 import re
 import json
 import pytz
+import random
 import asyncio
 import logging
 import base64
@@ -449,7 +450,34 @@ async def mute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         error_msg = await update.message.reply_text(f"⚠️ 系统检测到珍贵同事光环 ⚠️本次禁言操作已被【职场生存法则】拦截")
         asyncio.create_task(delete_message_later(error_msg))
         logger.error(f"禁言用户失败: {e}")
-
+        
+async def morning_greeting_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    greetings = [
+        f"🌞 {user.first_name}早安呀！今天也是元气满满的一天呢~",
+        f"☕ {user.first_name}早上好！要记得吃早餐哦！",
+        f"🐦 早起的{user.first_name}有虫吃！今天也要加油鸭~",
+        f"🌻 {user.first_name}早安！你今天的笑容价值100分！",
+        f"🍞 面包会有的，{user.first_name}的好运也会有的，早上好！",
+        f"✨ {user.first_name}今天也要闪闪发光哦！早安~",
+        f"🐱 喵~{user.first_name}早上好！本机器人已为你充满电啦！",
+        f"🌄 {user.first_name}这么早就起床啦？真是自律的小可爱呢！",
+        f"🍵 晨光微熹，{user.first_name}早安！今天也要对自己好一点~",
+        f"🚀 {user.first_name}早上好！准备开始今天的冒险了吗？"
+    ]
+    
+    # 随机选择一条问候语
+    reply = random.choice(greetings)
+    
+    # 10%概率附加特别彩蛋
+    if random.random() < 0.1:
+        reply += "\n\n🎁 彩蛋：你是今天第{}个说早安的天使~".format(random.randint(1,100))
+    
+    await update.message.reply_text(reply)
+    
+    # 记录日志（温馨版）
+    logger.info(f"🌅 向 {user.full_name} 发送了早安问候")
+    
 async def unmute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """处理/unmute命令"""
     if not await is_admin(update, context):
@@ -636,7 +664,7 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(CommandHandler("export", export_handler))
         bot_app.add_handler(CallbackQueryHandler(ban_reason_handler))
         bot_app.add_handler(MessageHandler(filters.TEXT & filters.REPLY, custom_reason_handler))
-
+        bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND) & filters.Regex(r'^(?i)(gm|早|早上好|早安|good morning)'), morning_greeting_handler))
         await bot_app.initialize()
         await bot_app.start()
         if WEBHOOK_URL:
