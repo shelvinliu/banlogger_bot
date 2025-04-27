@@ -10,7 +10,8 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 from contextlib import asynccontextmanager
 import pandas as pd
-from github import Github, GithubException
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 from fastapi import FastAPI, Request, HTTPException, APIRouter
 from telegram import (
     Update,
@@ -37,8 +38,8 @@ logger = logging.getLogger(__name__)
 
 # 配置
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")  # GitHub Personal Access Token
-GITHUB_REPO = os.getenv("GITHUB_REPO")    # 格式：username/repo
+GOOGLE_SHEETS_CREDENTIALS = os.getenv("GOOGLE_SHEETS_CREDENTIALS")  # Base64编码的JSON凭证
+GOOGLE_SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME", "BanRecords")    # Google Sheet名称
 WEBHOOK_PATH = "/telegram"
 WEBHOOK_URL = f"{os.getenv('RENDER_EXTERNAL_URL', '')}{WEBHOOK_PATH}" if os.getenv("RENDER_EXTERNAL_URL") else None
 TIMEZONE = pytz.timezone(os.getenv("TIMEZONE", "Asia/Shanghai"))
@@ -50,108 +51,89 @@ bot_app: Optional[Application] = None
 bot_initialized: bool = False
 ban_records: List[Dict[str, Any]] = []
 
-class GitHubStorage:
+class GoogleSheetsStorage:
     @staticmethod
-    async def load_from_github() -> List[Dict[str, Any]]:
-        """从GitHub加载Excel数据"""
-        if not GITHUB_TOKEN or not GITHUB_REPO:
-            logger.warning("未配置GITHUB_TOKEN或GITHUB_REPO，无法从GitHub加载数据")
+    async def _get_worksheet() -> gspread.Worksheet:
+        """获取Google Sheet工作表"""
+        try:
+            # 解码Base64编码的凭证
+            creds_json = base64.b64decode(GOOGLE_SHEETS_CREDENTIALS).decode('utf-8')
+            creds_dict = json.loads(creds_json)
+            
+            # 使用服务账户凭证
+            scope = ['https://spreadsheets.google.com/feeds',
+                     'https://www.googleapis.com/auth/drive']
+            credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+            gc = gspread.authorize(credentials)
+            
+            # 打开工作表
+            worksheet = gc.open(GOOGLE_SHEET_NAME).sheet1
+            return worksheet
+        except Exception as e:
+            logger.error(f"获取Google Sheet失败: {e}")
+            raise
+
+    @staticmethod
+    async def load_from_sheet() -> List[Dict[str, Any]]:
+        """从Google Sheet加载数据"""
+        if not GOOGLE_SHEETS_CREDENTIALS:
+            logger.warning("未配置GOOGLE_SHEETS_CREDENTIALS，无法从Google Sheet加载数据")
             return []
             
         try:
-            g = Github(GITHUB_TOKEN)
-            repo = g.get_repo(GITHUB_REPO)
-            try:
-                contents = repo.get_contents(EXCEL_FILE)
-                file_data = base64.b64decode(contents.content)
-                
-                # 检查文件是否为空
-                if not file_data:
-                    logger.info("Excel文件为空，将创建新记录")
-                    return []
-                    
-                # 临时保存到本地
-                with open(EXCEL_FILE, "wb") as f:
-                    f.write(file_data)
-                
-                # 尝试多种读取方式
-                try:
-                    df = pd.read_excel(EXCEL_FILE, engine="openpyxl")
-                except Exception as e:
-                    logger.warning(f"使用openpyxl引擎失败: {e}")
-                    try:
-                        df = pd.read_csv(EXCEL_FILE)  # 尝试作为CSV读取
-                    except Exception as e:
-                        logger.error(f"读取文件失败: {e}")
-                        # 创建空DataFrame保持结构
-                        df = pd.DataFrame(columns=[
-                            "time", "group_name", "banned_user_id",
-                            "banned_user_name", "banned_username",
-                            "admin_name", "reason"
-                        ])
-                
-                return df.to_dict('records')
-            except GithubException as e:
-                if e.status == 404:
-                    logger.info("GitHub上未找到历史记录文件，将创建新文件")
+            worksheet = await GoogleSheetsStorage._get_worksheet()
+            records = worksheet.get_all_records()
+            
+            # 确保列名正确
+            expected_columns = ["time", "group_name", "banned_user_id", 
+                               "banned_user_name", "banned_username", 
+                               "admin_name", "reason"]
+            
+            if not records:
+                logger.info("Google Sheet为空，将创建新记录")
                 return []
+                
+            # 检查列名是否匹配
+            first_record = records[0]
+            if not all(col in first_record for col in expected_columns):
+                logger.warning("Google Sheet列名不匹配，可能需要修复")
+                return []
+                
+            return records
         except Exception as e:
-            logger.error(f"从GitHub加载数据失败: {e}")
+            logger.error(f"从Google Sheet加载数据失败: {e}")
             return []
+
     @staticmethod
-    async def repair_excel_file():
-        """修复损坏的Excel文件"""
-        try:
-            df = pd.DataFrame(ban_records)
-            df.to_excel(EXCEL_FILE, index=False, engine="openpyxl")
-            return True
-        except Exception as e:
-            logger.error(f"修复文件失败: {e}")
-            return False
-    @staticmethod
-    async def save_to_github(records: List[Dict[str, Any]]) -> bool:
-        """保存数据到GitHub"""
-        if not GITHUB_TOKEN or not GITHUB_REPO:
-            logger.error("未配置GITHUB_TOKEN或GITHUB_REPO，无法保存到GitHub")
+    async def save_to_sheet(records: List[Dict[str, Any]]) -> bool:
+        """保存数据到Google Sheet"""
+        if not GOOGLE_SHEETS_CREDENTIALS:
+            logger.error("未配置GOOGLE_SHEETS_CREDENTIALS，无法保存到Google Sheet")
             return False
             
         try:
-            # 先保存到本地Excel
-            df = pd.DataFrame(records)
-            df.to_excel(EXCEL_FILE, index=False, engine="openpyxl")
+            worksheet = await GoogleSheetsStorage._get_worksheet()
             
-            # 读取Excel内容
-            with open(EXCEL_FILE, "rb") as f:
-                content = base64.b64encode(f.read()).decode("utf-8")
+            # 清除现有数据（保留标题行）
+            worksheet.clear()
             
-            # 上传到GitHub
-            g = Github(GITHUB_TOKEN)
-            repo = g.get_repo(GITHUB_REPO)
+            # 准备数据 - 确保所有记录都有所有字段
+            expected_columns = ["time", "group_name", "banned_user_id", 
+                              "banned_user_name", "banned_username", 
+                              "admin_name", "reason"]
             
-            try:
-                # 尝试获取现有文件（更新模式）
-                contents = repo.get_contents(EXCEL_FILE)
-                repo.update_file(
-                    path=EXCEL_FILE,
-                    message="Update ban records",
-                    content=content,
-                    sha=contents.sha
-                )
-            except GithubException as e:
-                if e.status == 404:
-                    # 文件不存在，创建新文件
-                    repo.create_file(
-                        path=EXCEL_FILE,
-                        message="Create ban records",
-                        content=content
-                    )
-                else:
-                    raise
+            # 添加标题行
+            worksheet.append_row(expected_columns)
             
-            logger.info("数据已保存到GitHub")
+            # 添加数据行
+            for record in records:
+                row = [record.get(col, "") for col in expected_columns]
+                worksheet.append_row(row)
+            
+            logger.info("数据已保存到Google Sheet")
             return True
         except Exception as e:
-            logger.error(f"保存到GitHub失败: {e}")
+            logger.error(f"保存到Google Sheet失败: {e}")
             return False
 
 class BanManager:
@@ -201,7 +183,7 @@ class BanManager:
         reason: str = "未填写",
         banned_username: Optional[str] = None
     ) -> bool:
-        """保存封禁记录到内存并导出为Excel"""
+        """保存封禁记录到内存并导出到Google Sheet"""
         global ban_records
         
         try:
@@ -217,14 +199,10 @@ class BanManager:
             
             ban_records.append(record)
             
-            # 导出为Excel
-            df = pd.DataFrame(ban_records)
-            df.to_excel(EXCEL_FILE, index=False, engine="openpyxl")
-            
-            # 同步到GitHub
-            success = await GitHubStorage.save_to_github(ban_records)
+            # 同步到Google Sheet
+            success = await GoogleSheetsStorage.save_to_sheet(ban_records)
             if not success:
-                logger.warning("GitHub同步失败，数据仅保存在内存中")
+                logger.warning("Google Sheet同步失败，数据仅保存在内存中")
             
             logger.info(f"记录已保存: {banned_user_name} | {reason}")
             return True
@@ -665,21 +643,12 @@ async def export_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """FastAPI生命周期管理"""
-    global bot_app, bot_initialized
-    if not os.path.exists(EXCEL_FILE):
-        with open(EXCEL_FILE, "wb") as f:
-            # 创建包含正确列名的空Excel文件
-            pd.DataFrame(columns=[
-                "time", "group_name", "banned_user_id",
-                "banned_user_name", "banned_username",
-                "admin_name", "reason"
-            ]).to_excel(EXCEL_FILE, index=False)
-        
+    global bot_app, bot_initialized, ban_records
+    
     if not bot_initialized:
-        # 初始化时从GitHub加载数据
-        global ban_records
-        ban_records = await GitHubStorage.load_from_github()
-        logger.info(f"从GitHub加载了 {len(ban_records)} 条历史记录")
+        # 初始化时从Google Sheet加载数据
+        ban_records = await GoogleSheetsStorage.load_from_sheet()
+        logger.info(f"从Google Sheet加载了 {len(ban_records)} 条历史记录")
 
         bot_app = ApplicationBuilder().token(TOKEN).build()
 
