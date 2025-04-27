@@ -432,9 +432,18 @@ async def mute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await context.bot.restrict_chat_member(
             chat_id=chat_id,
             user_id=target_user.id,
-            permissions=ChatPermissions(can_send_messages=False),
-            until_date=until_date
-        )
+            permissions=ChatPermissions(
+            can_send_messages=False,
+            can_send_media_messages=False,
+            can_send_polls=False,
+            can_send_other_messages=False,
+            can_add_web_page_previews=False,
+            can_change_info=False,
+            can_invite_users=False,
+            can_pin_messages=False
+    ),
+    until_date=until_date
+)
         
         mute_msg = await update.message.reply_text(
             f"⏳ 用户 [{target_user.full_name}](tg://user?id={target_user.id}) "
