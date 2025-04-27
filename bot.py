@@ -98,7 +98,16 @@ class GitHubStorage:
         except Exception as e:
             logger.error(f"从GitHub加载数据失败: {e}")
             return []
-
+    @staticmethod
+    async def repair_excel_file():
+        """修复损坏的Excel文件"""
+        try:
+            df = pd.DataFrame(ban_records)
+            df.to_excel(EXCEL_FILE, index=False, engine="openpyxl")
+            return True
+        except Exception as e:
+            logger.error(f"修复文件失败: {e}")
+            return False
     @staticmethod
     async def save_to_github(records: List[Dict[str, Any]]) -> bool:
         """保存数据到GitHub"""
@@ -657,7 +666,15 @@ async def export_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def lifespan(app: FastAPI):
     """FastAPI生命周期管理"""
     global bot_app, bot_initialized
-
+    if not os.path.exists(EXCEL_FILE):
+        with open(EXCEL_FILE, "wb") as f:
+            # 创建包含正确列名的空Excel文件
+            pd.DataFrame(columns=[
+                "time", "group_name", "banned_user_id",
+                "banned_user_name", "banned_username",
+                "admin_name", "reason"
+            ]).to_excel(EXCEL_FILE, index=False)
+        
     if not bot_initialized:
         # 初始化时从GitHub加载数据
         global ban_records
