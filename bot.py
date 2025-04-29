@@ -228,20 +228,22 @@ class BanManager:
         banned_user_name: str,
         admin_name: str,
         reason: str = "未填写",
-        banned_username: Optional[str] = None
+        banned_username: Optional[str] = None,
+        action_type: str = "封禁"  # 新增操作类型参数，默认为"封禁"
     ) -> bool:
         """保存封禁记录到内存并导出到Google Sheet"""
         global ban_records
         
         try:
             record = {
-                "time": datetime.now(TIMEZONE).isoformat(),
-                "group_name": chat_title,
-                "banned_user_id": banned_user_id,
-                "banned_user_name": banned_user_name,
-                "banned_username": f"@{banned_username}" if banned_username else "无",
-                "admin_name": admin_name,
-                "reason": reason
+                "操作时间": datetime.now(TIMEZONE).isoformat(),
+                "电报群组名称": chat_title,
+                "被操作用户ID（数字）": banned_user_id,
+                "被操作用户电报名称": banned_user_name,
+                "被操作用户@username": f"@{banned_username}" if banned_username else "无",
+                "管理员名字": admin_name,
+                "理由": reason,
+                "操作": action_type  # 新增操作类型字段
             }
             
             ban_records.append(record)
@@ -251,7 +253,7 @@ class BanManager:
             if not success:
                 logger.warning("Google Sheet同步失败，数据仅保存在内存中")
             
-            logger.info(f"记录已保存: {banned_user_name} | {reason}")
+            logger.info(f"记录已保存: {banned_user_name} | {reason} | {action_type}")
             return True
         except Exception as e:
             logger.error(f"保存记录失败: {e}")
