@@ -354,47 +354,59 @@ async def kick_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         logger.error(f"踢出用户失败: {e}")
 
 async def ban_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """处理封禁原因选择"""
+    """处理封禁/禁言原因选择"""
     query = update.callback_query
     await query.answer()
     
     try:
-        _, user_id_str, user_name, reason = query.data.split("|")
+        action, user_id_str, user_name, reason = query.data.split("|")
         banned_user_id = int(user_id_str)
     except ValueError:
         error_msg = await query.message.reply_text("⚠️ 无效的回调数据")
         asyncio.create_task(delete_message_later(error_msg))
         return
     
+    # 获取操作上下文
+    if action == "ban_reason":
+        last_action = context.chat_data.get("last_ban", {})
+    elif action == "mute_reason":
+        last_action = context.chat_data.get("last_mute", {})
+    else:
+        error_msg = await query.message.reply_text("⚠️ 未知的操作类型")
+        asyncio.create_task(delete_message_later(error_msg))
+        return
+    
     # 验证操作权限
-    last_ban = context.chat_data.get("last_ban", {})
-    if query.from_user.id != last_ban.get("operator_id"):
-        error_msg = await query.message.reply_text("⚠️ 只有执行踢出的管理员能选择原因")
+    if query.from_user.id != last_action.get("operator_id"):
+        error_msg = await query.message.reply_text("⚠️ 只有执行操作的管理员能选择原因")
         asyncio.create_task(delete_message_later(error_msg))
         return
     
     # 处理"其他"原因
     if reason == "其他":
         context.user_data["pending_reason"] = {
+            "action_type": action,
             "banned_user_id": banned_user_id,
             "banned_user_name": user_name,
-            "banned_username": last_ban.get("target_username"),
-            "chat_title": query.message.chat.title,
-            "admin_name": query.from_user.full_name
+            "banned_username": last_action.get("target_username"),
+            "chat_title": last_action.get("chat_title", query.message.chat.title),
+            "admin_name": query.from_user.full_name,
+            "duration": last_action.get("duration", "永久") if action == "mute_reason" else None
         }
-        msg = await query.message.reply_text("请输入自定义封禁原因:")
+        msg = await query.message.reply_text("请输入自定义原因:")
         asyncio.create_task(delete_message_later(msg))
         return
     
-    # 保存封禁记录
+    # 保存记录
     try:
         success = await BanManager.save_to_db(
-            chat_title=query.message.chat.title,
+            chat_title=last_action.get("chat_title", query.message.chat.title),
             banned_user_id=banned_user_id,
             banned_user_name=user_name,
-            banned_username=last_ban.get("target_username"),
+            banned_username=last_action.get("target_username"),
             admin_name=query.from_user.full_name,
-            reason=reason
+            reason=f"{'禁言' if action == 'mute_reason' else '封禁'}: {reason}" + 
+                  (f" ({last_action.get('duration')})" if action == "mute_reason" else "")
         )
         
         if success:
@@ -409,7 +421,7 @@ async def ban_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as e:
         error_msg = await query.message.reply_text(f"❌ 保存失败: {str(e)}")
         asyncio.create_task(delete_message_later(error_msg))
-        logger.error(f"保存封禁原因失败: {e}")
+        logger.error(f"保存原因失败: {e}")
 
 async def custom_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """处理自定义封禁原因"""
@@ -489,16 +501,43 @@ async def mute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 can_invite_users=False,
                 can_pin_messages=False,
                 can_change_info=False,
-                ),
-    until_date=until_date
-)
+            ),
+            until_date=until_date
+        )
+        
+        # 获取用户被封禁次数
+        ban_count = await BanManager.get_ban_count(target_user.id)
         
         mute_msg = await update.message.reply_text(
             f"⏳ 用户 [{target_user.full_name}](tg://user?id={target_user.id}) "
-            f"已被禁言 {duration}",
+            f"已被禁言 {duration}\n"
+            f"📌 历史封禁次数: {ban_count}",
             parse_mode="Markdown"
         )
+        
+        # 添加封禁原因选择
+        reply_markup = BanManager.get_ban_reasons_keyboard(
+            banned_user_id=target_user.id,
+            banned_user_name=target_user.full_name
+        )
+        
+        reason_msg = await update.message.reply_text(
+            "请选择禁言原因：",
+            reply_markup=reply_markup
+        )
+        
+        # 保存操作上下文
+        context.chat_data["last_mute"] = {
+            "target_id": target_user.id,
+            "operator_id": update.effective_user.id,
+            "target_username": target_user.username,  # 存储username用于后续处理
+            "duration": str(duration),
+            "chat_title": update.effective_chat.title
+        }
+        
+        # 设置自动删除
         asyncio.create_task(delete_message_later(mute_msg))
+        asyncio.create_task(delete_message_later(reason_msg))
         
     except ValueError as e:
         error_msg = await update.message.reply_text(f"❌ 时间格式错误: {str(e)}")
