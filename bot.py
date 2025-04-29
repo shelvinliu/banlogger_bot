@@ -867,7 +867,7 @@ async def unmute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 can_add_web_page_previews=True,
                 can_change_info=False,
                 can_invite_users=False,
-                can_pin_messages=False
+                can_pin_messages=False,
                 can_send_audios=True,
                 can_send_documents=False,
                 can_send_photos=False,
