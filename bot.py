@@ -757,12 +757,20 @@ app = FastAPI(lifespan=lifespan)
 
 # Include your router if you have one
 app.include_router(router)
-@app.post("/telegram")
+@app.post(WEBHOOK_PATH)
 async def telegram_webhook(request: Request):
-    data = await request.json()
-    update = Update.de_json(data, bot_app.bot)
-    await bot_app.process_update(update)
-    return {"ok": True}
+    """Telegram Webhook入口"""
+    if not bot_app or not bot_initialized:
+        raise HTTPException(status_code=503, detail="Bot未初始化")
+    
+    try:
+        data = await request.json()
+        update = Update.de_json(data, bot_app.bot)
+        await bot_app.process_update(update)
+        return {"ok": True}
+    except Exception as e:
+        logger.error(f"处理更新失败: {e}")
+        raise HTTPException(status_code=400, detail="处理更新失败")
 # This is important for Render to detect your ASGI app
 if __name__ == "__main__":
     import uvicorn
