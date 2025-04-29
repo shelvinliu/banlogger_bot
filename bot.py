@@ -196,7 +196,6 @@ class BanManager:
             [
                 InlineKeyboardButton("FUD", callback_data=f"{action_prefix}|{banned_user_id}|{banned_user_name}|FUD"),
                 InlineKeyboardButton("带节奏", callback_data=f"{action_prefix}|{banned_user_id}|{banned_user_name}|带节奏"),
-                InlineKeyboardButton("其他", callback_data=f"{action_prefix}|{banned_user_id}|{banned_user_name}|其他"),
             ]
         ]
         return InlineKeyboardMarkup(buttons)
@@ -238,10 +237,10 @@ class BanManager:
             record = {
                 "操作时间": datetime.now(TIMEZONE).isoformat(),
                 "电报群组名称": chat_title,
-                "被操作用户ID（数字）": banned_user_id,
-                "被操作用户电报名称": banned_user_name,
-                "被操作用户@username": f"@{banned_username}" if banned_username else "无",
-                "管理员名字": admin_name,
+                "用户ID": banned_user_id,
+                "名称": banned_user_name,
+                "用户名": f"@{banned_username}" if banned_username else "无",
+                "操作管理": admin_name,
                 "理由": reason,
                 "操作": action_type  # 新增操作类型字段
             }
@@ -374,8 +373,10 @@ async def ban_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # 获取操作上下文
     if action == "ban_reason":
         last_action = context.chat_data.get("last_ban", {})
+        action_type = "封禁"
     elif action == "mute_reason":
         last_action = context.chat_data.get("last_mute", {})
+        action_type = "禁言"
     else:
         error_msg = await query.message.reply_text("⚠️ 未知的操作类型")
         asyncio.create_task(delete_message_later(error_msg))
@@ -385,22 +386,7 @@ async def ban_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if query.from_user.id != last_action.get("operator_id"):
         error_msg = await query.message.reply_text("⚠️ 只有执行操作的管理员能选择原因")
         asyncio.create_task(delete_message_later(error_msg))
-        return
-    
-    # 处理"其他"原因
-    if reason == "其他":
-        context.user_data["pending_reason"] = {
-            "action_type": action,
-            "banned_user_id": banned_user_id,
-            "banned_user_name": user_name,
-            "banned_username": last_action.get("target_username"),
-            "chat_title": last_action.get("chat_title", query.message.chat.title),
-            "admin_name": query.from_user.full_name,
-            "duration": last_action.get("duration", "永久") if action == "mute_reason" else None
-        }
-        msg = await query.message.reply_text("请输入自定义原因:")
-        asyncio.create_task(delete_message_later(msg))
-        return
+        return    
     
     # 保存记录
     try:
@@ -427,49 +413,6 @@ async def ban_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         error_msg = await query.message.reply_text(f"❌ 保存失败: {str(e)}")
         asyncio.create_task(delete_message_later(error_msg))
         logger.error(f"保存原因失败: {e}")
-
-async def custom_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """处理自定义封禁/禁言原因"""
-    if "pending_reason" not in context.user_data:
-        return
-    
-    pending_data = context.user_data["pending_reason"]
-    reason = update.message.text.strip()
-    
-    if not reason:
-        error_msg = await update.message.reply_text("❌ 原因不能为空")
-        asyncio.create_task(delete_message_later(error_msg))
-        return
-    
-    try:
-        action_type = pending_data.get("action_type", "ban_reason")
-        full_reason = f"{'禁言' if action_type == 'mute_reason' else '封禁'}: {reason}"
-        if action_type == "mute_reason" and pending_data.get("duration"):
-            full_reason += f" ({pending_data['duration']})"
-            
-        success = await BanManager.save_to_db(
-            chat_title=pending_data["chat_title"],
-            banned_user_id=pending_data["banned_user_id"],
-            banned_user_name=pending_data["banned_user_name"],
-            banned_username=pending_data["banned_username"],
-            admin_name=pending_data["admin_name"],
-            reason=full_reason
-        )
-        
-        if success:
-            confirm_msg = await update.message.reply_text(f"✅ 已记录自定义原因: {full_reason}")
-            asyncio.create_task(delete_message_later(confirm_msg))
-        else:
-            error_msg = await update.message.reply_text("❌ 保存记录失败")
-            asyncio.create_task(delete_message_later(error_msg))
-        
-    except Exception as e:
-        error_msg = await update.message.reply_text(f"❌ 保存失败: {str(e)}")
-        asyncio.create_task(delete_message_later(error_msg))
-        logger.error(f"保存自定义原因失败: {e}")
-    
-    context.user_data.pop("pending_reason", None)
-    await update.message.delete()
 
 async def mute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """处理/mute命令"""
@@ -1138,8 +1081,7 @@ async def lifespan(app: FastAPI):
     bot_app.add_handler(CommandHandler("export", export_handler))
     bot_app.add_handler(CallbackQueryHandler(ban_reason_handler))
     bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND) & filters.Regex(r'(?i)^(gm|早|早上好|早安|good morning)$'), morning_greeting_handler))
-    bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), custom_reason_handler))
-    bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND) & filters.Regex(r'(?i)^(Gn|gn|GN|晚安|晚上好|good night|night|nighty night|晚安安|睡觉啦|睡啦|去睡了)$'), goodnight_greeting_handler))
+    bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND) & filters.Regex(r'(?i)^(gn|晚安|晚上好|good night|night|nighty night|晚安安|睡觉啦|睡啦|去睡了)$'), goodnight_greeting_handler))
     await bot_app.initialize()
     await bot_app.start()
     if WEBHOOK_URL:
