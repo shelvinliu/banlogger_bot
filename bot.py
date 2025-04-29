@@ -63,9 +63,7 @@ class GoogleSheetsStorage:
             worksheet = await GoogleSheetsStorage._get_worksheet()
             records = worksheet.get_all_records()
             
-            expected_columns = ["time", "group_name", "banned_user_id", 
-                              "banned_user_name", "banned_username", 
-                              "admin_name", "reason"]
+            expected_columns = ["操作时间", "电报群组名称", "用户ID", "用户名", "名称", "操作管理", "理由", "操作"]
             
             if not records:
                 logger.info("Google Sheet为空，将创建新记录")
@@ -397,7 +395,8 @@ async def ban_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             banned_username=last_action.get("target_username"),
             admin_name=query.from_user.full_name,
             reason=f"{'禁言' if action == 'mute_reason' else '封禁'}: {reason}" + 
-                  (f" ({last_action.get('duration')})" if action == "mute_reason" else "")
+                  (f" ({last_action.get('duration')})" if action == "mute_reason" else ""),
+            action_type="禁言" if action == "mute_reason" else "封禁"  # 添加这行
         )
         
         if success:
