@@ -86,8 +86,8 @@ class GoogleSheetsStorage:
     @staticmethod
     async def _get_worksheet():
         try:
-            creds_dict = json.loads(base64.b64decode(GOOGLE_SHEETS_CREDENTIALS).decode())
-            scope = ['https://spreadsheets.google.com/feeds',
+            creds_json = base64.b64decode(GOOGLE_SHEETS_CREDENTIALS + '=' * (-len(GOOGLE_SHEETS_CREDENTIALS) % 4)).decode()
+            creds_dict = json.loads(creds_json)            scope = ['https://spreadsheets.google.com/feeds',
                     'https://www.googleapis.com/auth/drive']
             
             # 确保使用正确的认证方式
@@ -686,81 +686,39 @@ async def export_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def lifespan(app: FastAPI):
     global bot_app, bot_initialized, ban_records
     
-    # 验证环境变量
     if not TOKEN:
-        raise ValueError("TELEGRAM_BOT_TOKEN环境变量未设置")
+        raise ValueError("TELEGRAM_BOT_TOKEN environment variable未设置")
     
-    # 尝试连接Google Sheets
+    # Try Google Sheets connection only if credentials exist
     if GOOGLE_SHEETS_CREDENTIALS:
         try:
             logger.info("正在验证Google Sheets连接...")
-            worksheet = await GoogleSheetsStorage._get_worksheet()
-            logger.info("Google Sheets连接成功")
-        except Exception as e:
-            logger.error(f"Google Sheets连接失败: {e}")
-            if input("继续运行而不使用Google Sheets? (y/n): ").lower() != 'y':
-                raise
-    else:
-        logger.warning("未配置GOOGLE_SHEETS_CREDENTIALS，将仅使用内存存储")
-
-    if not bot_initialized:
-        try:
             ban_records = await GoogleSheetsStorage.load_from_sheet()
             logger.info(f"从Google Sheet加载了 {len(ban_records)} 条历史记录")
         except Exception as e:
-            logger.error(f"加载历史记录失败: {e}")
+            logger.error(f"Google Sheets连接失败: {e}")
+            logger.warning("将仅使用内存存储")
             ban_records = []
+    else:
+        logger.warning("未配置GOOGLE_SHEETS_CREDENTIALS，将仅使用内存存储")
+        ban_records = []
 
-        # 初始化bot
-        bot_app = ApplicationBuilder().token(TOKEN).build()
-        
-        # 注册处理器（使用修复后的正则表达式）
-        bot_app.add_handler(MessageHandler(
-            filters.TEXT & (~filters.COMMAND) & filters.Regex(r'(?i)^(gm|早|早上好|早安|good morning)$'),
-            morning_greeting_handler
-        ))
-        
-        # ... 其他处理器注册 ...
-        
-        await bot_app.initialize()
-        await bot_app.start()
-        if WEBHOOK_URL:
-            await bot_app.bot.set_webhook(url=WEBHOOK_URL)
-
-        bot_initialized = True
+    # Initialize bot
+    bot_app = ApplicationBuilder().token(TOKEN).build()
     
+    # Register handlers...
+    
+    await bot_app.initialize()
+    await bot_app.start()
+    if WEBHOOK_URL:
+        await bot_app.bot.set_webhook(url=WEBHOOK_URL)
+
+    bot_initialized = True
     yield
     
     if bot_app:
         await bot_app.stop()
         await bot_app.shutdown()
-
-# FastAPI应用实例
-app = FastAPI(lifespan=lifespan)
-
-router = APIRouter()
-
-@router.api_route("/health", methods=["GET", "HEAD"])
-async def health_check():
-    return {"status": "ok"}
-
-app.include_router(router)
-
-@app.post(WEBHOOK_PATH)
-async def telegram_webhook(req: Request):
-    """Telegram Webhook入口"""
-    if not bot_app:
-        raise HTTPException(status_code=503, detail="Bot未初始化")
-
-    try:
-        data = await req.json()
-        update = Update.de_json(data, bot_app.bot)
-        await bot_app.process_update(update)
-        return {"ok": True}
-    except Exception as e:
-        logger.error(f"处理更新失败: {e}")
-        raise HTTPException(status_code=400, detail="处理更新失败")
-
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("bot:app", host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
