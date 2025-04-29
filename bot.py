@@ -86,28 +86,30 @@ class GoogleSheetsStorage:
     @staticmethod
     async def _get_worksheet():
         try:
-            creds_json = base64.b64decode(GOOGLE_SHEETS_CREDENTIALS + '=' * (-len(GOOGLE_SHEETS_CREDENTIALS) % 4)).decode()
-            creds_dict = json.loads(creds_json)            scope = ['https://spreadsheets.google.com/feeds',
-                    'https://www.googleapis.com/auth/drive']
+            # Fix the base64 padding and decoding
+            padding = '=' * (-len(GOOGLE_SHEETS_CREDENTIALS) % 4)
+            creds_json = base64.b64decode(GOOGLE_SHEETS_CREDENTIALS + padding).decode()
+            creds_dict = json.loads(creds_json)
             
-            # 确保使用正确的认证方式
+            # Properly indented scope definition
+            scope = [
+                'https://spreadsheets.google.com/feeds',
+                'https://www.googleapis.com/auth/drive'
+            ]
+            
             credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
             gc = gspread.authorize(credentials)
             
-            # 处理表格不存在的情况
             try:
                 return gc.open(GOOGLE_SHEET_NAME).sheet1
             except gspread.SpreadsheetNotFound:
-                # 自动创建表格
                 sh = gc.create(GOOGLE_SHEET_NAME)
-                # 分享给服务账号邮箱（重要！）
                 sh.share(creds_dict["client_email"], perm_type="user", role="writer")
                 return sh.sheet1
                 
         except Exception as e:
             logger.error(f"Google Sheets 初始化失败: {e}")
             raise
-
     @staticmethod
     def _auth_with_dict(creds_dict: dict) -> gspread.Worksheet:
         """使用字典凭证认证"""
