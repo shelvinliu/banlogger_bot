@@ -858,7 +858,6 @@ async def goodnight_greeting_handler(update: Update, context: ContextTypes.DEFAU
         f"🧸 {user.first_name}晚安，抱紧你的小熊做个甜梦吧",
         f"🍃 {user.first_name}晚安，晚风会为你唱摇篮曲",
         f"🌌 {user.first_name}晚安，银河已为你铺好梦境之路",
-        
         # 可爱幽默系列
         f"🐑 {user.first_name}晚安，快去数羊吧！1只羊...2只羊...zzz",
         f"🦇 {user.first_name}晚安，蝙蝠侠说你该睡觉了",
@@ -1140,9 +1139,7 @@ async def lifespan(app: FastAPI):
     bot_app.add_handler(CallbackQueryHandler(ban_reason_handler))
     bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND) & filters.Regex(r'(?i)^(gm|早|早上好|早安|good morning)$'), morning_greeting_handler))
     bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), custom_reason_handler))
-    bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND) & filters.Regex(r'(?i)^(Gn|gn|GN|晚安|晚上好|good night|night|nighty night|晚安安|睡觉啦|睡啦|去睡了)$'), 
-    goodnight_greeting_handler
-))
+    bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND) & filters.Regex(r'(?i)^(Gn|gn|GN|晚安|晚上好|good night|night|nighty night|晚安安|睡觉啦|睡啦|去睡了)$'), goodnight_greeting_handler))
     await bot_app.initialize()
     await bot_app.start()
     if WEBHOOK_URL:
