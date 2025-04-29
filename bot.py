@@ -786,6 +786,74 @@ async def morning_greeting_handler(update: Update, context: ContextTypes.DEFAULT
     
     await update.message.reply_text(reply)
     logger.info(f"🌅 向 {user.full_name} 发送了早安问候")
+COMFORT_MESSAGES = [
+    "🌧️ 市场下雨了，但别忘了雨后总有彩虹~",
+    "📉 短期波动而已，咱们长期主义者笑看风云",
+    "💎 钻石手们，握紧你们的筹码！",
+    "🐋 大户跑了正好，咱们捡便宜筹码的机会来了",
+    "🛌 跌了就睡会，醒来又是新行情",
+    "🍃 风会停，雨会住，市场总会回暖",
+    "🧘 深呼吸，价格波动只是市场的呼吸节奏",
+    "🦉 聪明人都在悄悄加仓呢",
+    "📚 历史告诉我们，每次大跌都是财富再分配的机会",
+    "🌊 潮起潮落很正常，咱们冲浪手不怕浪",
+    "🛡️ 真正的战士经得起市场考验",
+    "🍵 淡定喝茶，这点波动不算啥",
+    "🎢 坐过山车就要享受刺激过程",
+    "🕰️ 时间会奖励耐心的人",
+    "🧩 市场拼图少了一块？很快会补上的",
+    "🌱 跌下去的都在扎根，为了跳得更高",
+    "🎯 目标不变，策略微调，继续前进",
+    "🚣 划船不用桨，全靠浪~现在浪来了",
+    "🛒 打折促销啦！聪明买家该出手了",
+    "📉📈 没有只跌不涨的市场",
+    "💪 考验信仰的时候到了",
+    "🔄 周期循环，下一站是上涨",
+    "🧲 价值终会吸引价格回归",
+    "🏗️ 下跌是更好的建仓机会",
+    "🎮 游戏难度调高了，但通关奖励更丰厚",
+    "🤲 空头抛售，我们接盘，谁更聪明？",
+    "🌌 黑夜再长，黎明终会到来",
+    "🛎️ 市场闹钟响了，该关注机会了",
+    "🧠 情绪化的人恐慌，理性的人布局",
+    "🪂 降落是为了更好的起飞",
+    "🎲 短期是投票机，长期是称重机",
+    "🦚 孔雀开屏前要先收拢羽毛",
+    "⚖️ 市场终会回归价值平衡",
+    "🏔️ 攀登前总要下到山谷",
+    "🔮 水晶球显示：未来会涨回来",
+    "🧵 行情像弹簧，压得越狠弹得越高",
+    "🎻 市场交响乐也有慢板乐章",
+    "🛸 外星人砸盘？正好接点外星筹码",
+    "🏆 冠军都是在逆境中练就的",
+    "🌪️ 风暴中心最平静，保持冷静",
+    "🕵️‍♂️ 价值投资者正在悄悄扫货",
+    "🎢 过山车下坡才刺激，上坡在后面",
+    "🧗 回调是为了更好的突破前高",
+    "🛌 装死策略启动，躺平等反弹",
+    "🎯 目标价没变，只是路线曲折了点",
+    "🧘‍♂️ 禅定时刻：市场噪音过滤中",
+    "🦸 英雄都是在危机中诞生的",
+    "🌄 最美的日出前是最暗的夜",
+    "🎻 这是市场的休止符，不是终止符",
+    "🛡️ 你的止损线设好了吗？没设就不用慌",
+    "🧂 这点波动，洒洒水啦~"
+]
+
+# 在命令处理部分添加
+async def comfort_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理/comfort安慰指令"""
+    try:
+        # 随机选择3条不同的安慰语
+        selected = random.sample(COMFORT_MESSAGES, min(3, len(COMFORT_MESSAGES)))
+        reply = "💖 市场下跌安慰包 💖\n\n" + "\n\n".join(selected)
+        reply += "\n\n✨ 记住：市场周期往复，保持良好心态最重要"
+        
+        await update.message.reply_text(reply)
+        logger.info(f"发送安慰消息给 {update.effective_user.full_name}")
+    except Exception as e:
+        logger.error(f"发送安慰消息失败: {e}")
+        await update.message.reply_text("😔 安慰服务暂时不可用，先抱抱~")
 async def goodnight_greeting_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     greetings = [
@@ -1082,6 +1150,7 @@ async def lifespan(app: FastAPI):
     bot_app.add_handler(CallbackQueryHandler(ban_reason_handler))
     bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND) & filters.Regex(r'(?i)^(gm|早|早上好|早安|good morning)$'), morning_greeting_handler))
     bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND) & filters.Regex(r'(?i)^(gn|晚安|晚上好|good night|night|nighty night|晚安安|睡觉啦|睡啦|去睡了)$'), goodnight_greeting_handler))
+    bot_app.add_handler(CommandHandler("comfort", comfort_handler))
     await bot_app.initialize()
     await bot_app.start()
     if WEBHOOK_URL:
