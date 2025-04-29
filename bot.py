@@ -63,7 +63,6 @@ class GoogleSheetsStorage:
             worksheet = await GoogleSheetsStorage._get_worksheet()
             records = worksheet.get_all_records()
             
-            # 确保列名正确
             expected_columns = ["time", "group_name", "banned_user_id", 
                               "banned_user_name", "banned_username", 
                               "admin_name", "reason"]
@@ -72,7 +71,6 @@ class GoogleSheetsStorage:
                 logger.info("Google Sheet为空，将创建新记录")
                 return []
                 
-            # 检查列名是否匹配
             first_record = records[0] if records else {}
             if not all(col in first_record for col in expected_columns):
                 logger.warning("Google Sheet列名不匹配，可能需要修复")
@@ -81,17 +79,29 @@ class GoogleSheetsStorage:
             return records
         except Exception as e:
             logger.error(f"从Google Sheet加载数据失败: {e}")
-            return []
+            # Create a local backup file
+            try:
+                with open("local_backup.json", "r") as f:
+                    return json.load(f)
+            except (FileNotFoundError, json.JSONDecodeError):
+                return []
+            except Exception as backup_error:
+                logger.error(f"本地备份加载失败: {backup_error}")
+                return []
 
     @staticmethod
     async def _get_worksheet():
         try:
-            # Fix the base64 padding and decoding
-            padding = '=' * (-len(GOOGLE_SHEETS_CREDENTIALS) % 4)
-            creds_json = base64.b64decode(GOOGLE_SHEETS_CREDENTIALS + padding).decode()
+            # Fix base64 padding
+            creds_b64 = GOOGLE_SHEETS_CREDENTIALS
+            # Add padding if needed
+            pad_len = len(creds_b64) % 4
+            if pad_len:
+                creds_b64 += '=' * (4 - pad_len)
+            
+            creds_json = base64.b64decode(creds_b64).decode('utf-8')
             creds_dict = json.loads(creds_json)
             
-            # Properly indented scope definition
             scope = [
                 'https://spreadsheets.google.com/feeds',
                 'https://www.googleapis.com/auth/drive'
