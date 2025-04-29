@@ -721,8 +721,16 @@ async def lifespan(app: FastAPI):
 
     # Initialize bot
     bot_app = ApplicationBuilder().token(TOKEN).build()
-    
-    # Register handlers...
+    bot_app.add_handler(CommandHandler("start", start_handler))
+    bot_app.add_handler(CommandHandler("k", kick_handler))
+    bot_app.add_handler(CommandHandler("m", mute_handler))
+    bot_app.add_handler(CommandHandler("um", unmute_handler))
+    bot_app.add_handler(CommandHandler("records", records_handler))
+    bot_app.add_handler(CommandHandler("search", search_handler))
+    bot_app.add_handler(CommandHandler("export", export_handler))
+    bot_app.add_handler(CallbackQueryHandler(ban_reason_handler))
+    bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND) & filters.Regex(r'(?i)^(gm|早|早上好|早安|good morning)$'), morning_greeting_handler))
+    bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), custom_reason_handler))
     
     await bot_app.initialize()
     await bot_app.start()
