@@ -840,7 +840,65 @@ async def morning_greeting_handler(update: Update, context: ContextTypes.DEFAULT
     
     await update.message.reply_text(reply)
     logger.info(f"🌅 向 {user.full_name} 发送了早安问候")
+async def goodnight_greeting_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    greetings = [
+        # 温馨祝福系列
+        f"🌙 {user.first_name}晚安，愿你今夜好梦~",
+        f"✨ {user.first_name}晚安，星星会守护你的梦境",
+        f"🛌 {user.first_name}晚安，被子已经帮你暖好啦",
+        f"🌜 {user.first_name}晚安，月亮说它会陪你到天亮",
+        f"💤 {user.first_name}晚安，充电时间到！明天满血复活~",
+        f"🦉 {user.first_name}晚安，猫头鹰会替你站岗的",
+        f"🌠 {user.first_name}晚安，流星会实现你梦中的愿望",
+        f"🧸 {user.first_name}晚安，抱紧你的小熊做个甜梦吧",
+        f"🍃 {user.first_name}晚安，晚风会为你唱摇篮曲",
+        f"🌌 {user.first_name}晚安，银河已为你铺好梦境之路",
+        
+        # 可爱幽默系列
+        f"🐑 {user.first_name}晚安，快去数羊吧！1只羊...2只羊...zzz",
+        f"🦇 {user.first_name}晚安，蝙蝠侠说你该睡觉了",
+        f"🍵 {user.first_name}晚安，睡前记得喝杯热牛奶哦",
+        f"📚 {user.first_name}晚安，明天再看更多精彩故事~",
+        f"🎮 {user.first_name}晚安，游戏角色也需要休息啦",
+        f"🐱 {user.first_name}晚安，猫咪已经在你床上占好位置了",
+        f"🌛 {user.first_name}晚安，月亮姐姐给你盖被子啦",
+        f"🛏️ {user.first_name}晚安，床说它想你了",
+        f"🧦 {user.first_name}晚安，记得把袜子挂在床边（说不定有惊喜）",
+        f"🦄 {user.first_name}晚安，独角兽会带你去梦幻仙境",
+        
+        # 诗意浪漫系列
+        f"🌹 {user.first_name}晚安，让玫瑰的芬芳伴你入眠",
+        f"🎶 {user.first_name}晚安，让夜曲轻抚你的梦境",
+        f"🖼️ {user.first_name}晚安，今晚的梦会是幅什么画呢？",
+        f"📝 {user.first_name}晚安，把今天的烦恼折成纸飞机放飞吧",
+        f"🍂 {user.first_name}晚安，落叶会为你铺就柔软的梦乡",
+        f"🕯️ {user.first_name}晚安，烛光会守护你到黎明",
+        f"🎻 {user.first_name}晚安，让月光小夜曲伴你入睡",
+        f"🌉 {user.first_name}晚安，梦境之桥已为你架好",
+        f"📖 {user.first_name}晚安，今天的故事就翻到这一页",
+        f"🪔 {user.first_name}晚安，愿你的梦境如灯火般温暖",
+        
+        # 特别彩蛋系列
+        f"🎁 {user.first_name}晚安！你是今天第{random.randint(1,100)}个说晚安的天使~",
+        f"🔮 {user.first_name}晚安！水晶球显示你明天会有好运！",
+        f"🧙 {user.first_name}晚安！魔法师已经为你的梦境施了快乐咒语",
+        f"🏰 {user.first_name}晚安！城堡里的公主/王子该就寝啦",
+        f"🚀 {user.first_name}晚安！梦境飞船即将发射~",
+    ]
     
+    # 随机选择一条问候语
+    reply = random.choice(greetings)
+    
+    # 10%概率附加特别彩蛋
+    if random.random() < 0.1:
+        emojis = ["✨", "🌟", "🎉", "💫", "🎊"]
+        reply += f"\n\n{random.choice(emojis)} 彩蛋：你是今天第{random.randint(1,100)}个获得晚安祝福的幸运儿~"
+    
+    await update.message.reply_text(reply)
+    logger.info(f"🌃 向 {user.full_name} 发送了晚安问候")
+
+
 async def unmute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """处理/unmute命令"""
     if not await is_admin(update, context):
@@ -1047,7 +1105,9 @@ async def lifespan(app: FastAPI):
     bot_app.add_handler(CallbackQueryHandler(ban_reason_handler))
     bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND) & filters.Regex(r'(?i)^(gm|早|早上好|早安|good morning)$'), morning_greeting_handler))
     bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), custom_reason_handler))
-    
+    bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND) & filters.Regex(r'(?i)^(gn|晚安|晚上好|good night|night|nighty night|晚安安|睡觉啦|睡啦|去睡了)$'), 
+    goodnight_greeting_handler
+))
     await bot_app.initialize()
     await bot_app.start()
     if WEBHOOK_URL:
