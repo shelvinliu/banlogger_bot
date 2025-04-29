@@ -721,6 +721,13 @@ async def lifespan(app: FastAPI):
     if bot_app:
         await bot_app.stop()
         await bot_app.shutdown()
+
+app = FastAPI(lifespan=lifespan)
+
+# Include your router if you have one
+app.include_router(router)
+
+# This is important for Render to detect your ASGI app
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("bot:app", host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
