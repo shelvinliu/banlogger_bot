@@ -191,9 +191,11 @@ class BanManager:
             [
                 InlineKeyboardButton("广告", callback_data=f"{action_prefix}|{banned_user_id}|{banned_user_name}|广告"),
                 InlineKeyboardButton("辱骂", callback_data=f"{action_prefix}|{banned_user_id}|{banned_user_name}|辱骂"),
+                InlineKeyboardButton("诈骗", callback_data=f"{action_prefix}|{banned_user_id}|{banned_user_name}|诈骗"),
             ],
             [
-                InlineKeyboardButton("刷屏", callback_data=f"{action_prefix}|{banned_user_id}|{banned_user_name}|刷屏"),
+                InlineKeyboardButton("FUD", callback_data=f"{action_prefix}|{banned_user_id}|{banned_user_name}|FUD"),
+                InlineKeyboardButton("带节奏", callback_data=f"{action_prefix}|{banned_user_id}|{banned_user_name}|带节奏"),
                 InlineKeyboardButton("其他", callback_data=f"{action_prefix}|{banned_user_id}|{banned_user_name}|其他"),
             ]
         ]
