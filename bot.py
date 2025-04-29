@@ -489,8 +489,7 @@ async def mute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 can_invite_users=False,
                 can_pin_messages=False,
                 can_change_info=False,
-            )
-    ),
+                ),
     until_date=until_date
 )
         
