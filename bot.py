@@ -89,7 +89,7 @@ class GoogleSheetsStorage:
                 logger.error(f"本地备份加载失败: {backup_error}")
                 return []
 
-  @staticmethod
+    @staticmethod
     async def _get_worksheet():
         try:
             # Get credentials with proper padding
