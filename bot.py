@@ -945,13 +945,14 @@ async def records_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         for record in recent_records:
             record_time = datetime.fromisoformat(record["time"]).astimezone(TIMEZONE).strftime("%Y-%m-%d %H:%M")
             message += (
-                f"🕒 {record_time}\n"
-                f"👤 用户: {record.get('banned_user_name', '未知')} "
-                f"(ID: {record.get('banned_user_id', '未知')}) "
-                f"[{record.get('banned_username', '无')}]\n"
-                f"👮 管理员: {record.get('admin_name', '未知')}\n"
-                f"📝 原因: {record.get('reason', '未填写')}\n"
-                f"💬 群组: {record.get('group_name', '未知')}\n"
+                f"🕒 {record.get('操作时间', '未知')}\n"
+                f"👤 用户: {record.get('名称', '未知')} "
+                f"(ID: {record.get('用户ID', '未知')}) "
+                f"[{record.get('用户名', '无')}]\n"
+                f"👮 管理员: {record.get('操作管理', '未知')}\n"
+                f"📝 原因: {record.get('理由', '未填写')}\n"
+                f"💬 群组: {record.get('电报群组名称', '未知')}\n"
+                f"🔧 操作: {record.get('操作', '未知')}\n"  # 新增操作类型显示
                 "━━━━━━━━━━━━━━\n"
             )
         
