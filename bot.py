@@ -89,19 +89,23 @@ class GoogleSheetsStorage:
                 logger.error(f"本地备份加载失败: {backup_error}")
                 return []
 
-    @staticmethod
+  @staticmethod
     async def _get_worksheet():
         try:
-            # Fix base64 padding
-            creds_b64 = GOOGLE_SHEETS_CREDENTIALS
-            # Add padding if needed
-            pad_len = len(creds_b64) % 4
-            if pad_len:
-                creds_b64 += '=' * (4 - pad_len)
+            # Get credentials with proper padding
+            creds_b64 = GOOGLE_SHEETS_CREDENTIALS.strip()
+            padding = len(creds_b64) % 4
+            if padding:
+                creds_b64 += '=' * (4 - padding)
             
+            # Decode
             creds_json = base64.b64decode(creds_b64).decode('utf-8')
             creds_dict = json.loads(creds_json)
             
+            # Verify we got the private key correctly
+            if not creds_dict.get('private_key'):
+                raise ValueError("Invalid credentials - missing private key")
+                
             scope = [
                 'https://spreadsheets.google.com/feeds',
                 'https://www.googleapis.com/auth/drive'
@@ -116,10 +120,10 @@ class GoogleSheetsStorage:
                 sh = gc.create(GOOGLE_SHEET_NAME)
                 sh.share(creds_dict["client_email"], perm_type="user", role="writer")
                 return sh.sheet1
-                
-        except Exception as e:
-            logger.error(f"Google Sheets 初始化失败: {e}")
-            raise
+            
+    except Exception as e:
+        logger.error(f"Google Sheets 初始化失败: {str(e)}")
+        raise
     @staticmethod
     def _auth_with_dict(creds_dict: dict) -> gspread.Worksheet:
         """使用字典凭证认证"""
