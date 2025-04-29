@@ -734,8 +734,14 @@ async def lifespan(app: FastAPI):
 router = APIRouter()
 
 @router.get("/health")
+@router.get("/health")
 async def health_check():
-    return {"status": "ok"}
+    return {
+        "status": "running",
+        "bot_initialized": bot_initialized,
+        "ban_records_count": len(ban_records),
+        "google_sheets_connected": bool(GOOGLE_SHEETS_CREDENTIALS)
+    }
 app = FastAPI(lifespan=lifespan)
 
 # Include your router if you have one
