@@ -121,9 +121,9 @@ class GoogleSheetsStorage:
                 sh.share(creds_dict["client_email"], perm_type="user", role="writer")
                 return sh.sheet1
             
-    except Exception as e:
-        logger.error(f"Google Sheets 初始化失败: {str(e)}")
-        raise
+        except Exception as e:
+            logger.error(f"Google Sheets 初始化失败: {str(e)}")
+            raise
     @staticmethod
     def _auth_with_dict(creds_dict: dict) -> gspread.Worksheet:
         """使用字典凭证认证"""
