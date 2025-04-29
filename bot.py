@@ -349,7 +349,7 @@ async def kick_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         asyncio.create_task(delete_message_later(reason_msg))
         
     except Exception as e:
-        error_msg = await update.message.reply_text(f"❌ 踢出失败: {str(e)}")
+        error_msg = await update.message.reply_text(f"❌ 踢出失败: 踢管理员失败。建议你先踢自己冷静一下。")
         asyncio.create_task(delete_message_later(error_msg))
         logger.error(f"踢出用户失败: {e}")
 
