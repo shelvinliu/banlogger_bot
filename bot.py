@@ -721,7 +721,11 @@ async def lifespan(app: FastAPI):
     if bot_app:
         await bot_app.stop()
         await bot_app.shutdown()
+router = APIRouter()
 
+@router.get("/health")
+async def health_check():
+    return {"status": "ok"}
 app = FastAPI(lifespan=lifespan)
 
 # Include your router if you have one
