@@ -184,16 +184,17 @@ class BanManager:
     """封禁管理工具类"""
     
     @staticmethod
-    def get_ban_reasons_keyboard(banned_user_id: int, banned_user_name: str) -> InlineKeyboardMarkup:
-        """生成封禁原因选择键盘"""
+    def get_ban_reasons_keyboard(banned_user_id: int, banned_user_name: str, action_type: str = "ban") -> InlineKeyboardMarkup:
+        """生成封禁/禁言原因选择键盘"""
+        action_prefix = "mute_reason" if action_type == "mute" else "ban_reason"
         buttons = [
             [
-                InlineKeyboardButton("广告", callback_data=f"ban_reason|{banned_user_id}|{banned_user_name}|广告"),
-                InlineKeyboardButton("辱骂", callback_data=f"ban_reason|{banned_user_id}|{banned_user_name}|辱骂"),
+                InlineKeyboardButton("广告", callback_data=f"{action_prefix}|{banned_user_id}|{banned_user_name}|广告"),
+                InlineKeyboardButton("辱骂", callback_data=f"{action_prefix}|{banned_user_id}|{banned_user_name}|辱骂"),
             ],
             [
-                InlineKeyboardButton("刷屏", callback_data=f"ban_reason|{banned_user_id}|{banned_user_name}|刷屏"),
-                InlineKeyboardButton("其他", callback_data=f"ban_reason|{banned_user_id}|{banned_user_name}|其他"),
+                InlineKeyboardButton("刷屏", callback_data=f"{action_prefix}|{banned_user_id}|{banned_user_name}|刷屏"),
+                InlineKeyboardButton("其他", callback_data=f"{action_prefix}|{banned_user_id}|{banned_user_name}|其他"),
             ]
         ]
         return InlineKeyboardMarkup(buttons)
@@ -424,7 +425,7 @@ async def ban_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         logger.error(f"保存原因失败: {e}")
 
 async def custom_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """处理自定义封禁原因"""
+    """处理自定义封禁/禁言原因"""
     if "pending_reason" not in context.user_data:
         return
     
@@ -437,17 +438,22 @@ async def custom_reason_handler(update: Update, context: ContextTypes.DEFAULT_TY
         return
     
     try:
+        action_type = pending_data.get("action_type", "ban_reason")
+        full_reason = f"{'禁言' if action_type == 'mute_reason' else '封禁'}: {reason}"
+        if action_type == "mute_reason" and pending_data.get("duration"):
+            full_reason += f" ({pending_data['duration']})"
+            
         success = await BanManager.save_to_db(
             chat_title=pending_data["chat_title"],
             banned_user_id=pending_data["banned_user_id"],
             banned_user_name=pending_data["banned_user_name"],
             banned_username=pending_data["banned_username"],
             admin_name=pending_data["admin_name"],
-            reason=reason
+            reason=full_reason
         )
         
         if success:
-            confirm_msg = await update.message.reply_text(f"✅ 已记录自定义原因: {reason}")
+            confirm_msg = await update.message.reply_text(f"✅ 已记录自定义原因: {full_reason}")
             asyncio.create_task(delete_message_later(confirm_msg))
         else:
             error_msg = await update.message.reply_text("❌ 保存记录失败")
@@ -518,7 +524,8 @@ async def mute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         # 添加封禁原因选择
         reply_markup = BanManager.get_ban_reasons_keyboard(
             banned_user_id=target_user.id,
-            banned_user_name=target_user.full_name
+            banned_user_name=target_user.full_name,
+            action_type="mute"
         )
         
         reason_msg = await update.message.reply_text(
@@ -856,13 +863,18 @@ async def unmute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             user_id=target_user.id,
             permissions=ChatPermissions(
                 can_send_messages=True,
-                can_send_media_messages=True,
                 can_send_polls=True,
-                can_send_other_messages=True,
                 can_add_web_page_previews=True,
                 can_change_info=False,
                 can_invite_users=False,
                 can_pin_messages=False
+                can_send_audios=True,
+                can_send_documents=False,
+                can_send_photos=False,
+                can_send_videos=False,
+                can_send_video_notes=False,
+                can_send_voice_notes=False,
+                can_send_other_messages=False,
             )
         )
         
