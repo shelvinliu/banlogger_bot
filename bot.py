@@ -35,7 +35,7 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
+app = FastAPI()
 # 配置
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GOOGLE_SHEETS_CREDENTIALS = os.getenv("GOOGLE_SHEETS_CREDENTIALS")  # Base64编码的JSON凭证
@@ -757,7 +757,12 @@ app = FastAPI(lifespan=lifespan)
 
 # Include your router if you have one
 app.include_router(router)
-
+@app.post("/telegram")
+async def telegram_webhook(request: Request):
+    data = await request.json()
+    update = Update.de_json(data, bot_app.bot)
+    await bot_app.process_update(update)
+    return {"ok": True}
 # This is important for Render to detect your ASGI app
 if __name__ == "__main__":
     import uvicorn
