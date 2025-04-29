@@ -746,7 +746,6 @@ async def lifespan(app: FastAPI):
 router = APIRouter()
 
 @router.get("/health")
-@router.get("/health")
 async def health_check():
     return {
         "status": "running",
