@@ -163,9 +163,9 @@ class GoogleSheetsStorage:
             worksheet.clear()
             
             # 准备数据 - 确保所有记录都有所有字段
-            expected_columns = ["操作时间", "电报群组名称", "被操作用户ID（数字）", 
-                              "被操作用户@username", "被操作用户电报名称", 
-                              "管理员名字", "理由"]
+            expected_columns = ["操作时间", "电报群组名称", "用户ID", 
+                              "用户名", "名称", 
+                              "操作管理", "理由", "操作"]  # 新增"操作"列
             
             # 添加标题行
             worksheet.append_row(expected_columns)
