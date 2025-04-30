@@ -88,7 +88,8 @@ class GoogleSheetsStorage:
                 return []
 
     @staticmethod
-    async def _get_worksheet():
+    async def _get_worksheet(sheet_name: str = None) -> gspread.Worksheet:
+        """获取工作表，默认返回第一个工作表"""
         try:
             # Get credentials with proper padding
             creds_b64 = GOOGLE_SHEETS_CREDENTIALS.strip()
@@ -113,12 +114,17 @@ class GoogleSheetsStorage:
             gc = gspread.authorize(credentials)
             
             try:
-                return gc.open(GOOGLE_SHEET_NAME).sheet1
+                sh = gc.open(GOOGLE_SHEET_NAME)
+                if sheet_name:
+                    return sh.worksheet(sheet_name)
+                return sh.sheet1
             except gspread.SpreadsheetNotFound:
                 sh = gc.create(GOOGLE_SHEET_NAME)
                 sh.share(creds_dict["client_email"], perm_type="user", role="writer")
+                if sheet_name:
+                    return sh.add_worksheet(title=sheet_name, rows=100, cols=20)
                 return sh.sheet1
-            
+                
         except Exception as e:
             logger.error(f"Google Sheets 初始化失败: {str(e)}")
             raise
