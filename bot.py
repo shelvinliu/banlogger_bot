@@ -178,6 +178,69 @@ class GoogleSheetsStorage:
         except Exception as e:
             logger.error(f"保存到Google Sheet失败: {e}")
             return False
+
+    @staticmethod
+    async def get_keyword_replies_worksheet():
+        """获取关键词回复工作表"""
+        try:
+            worksheet = await GoogleSheetsStorage._get_worksheet("KeywordReplies")
+            return worksheet
+        except gspread.WorksheetNotFound:
+            # 如果工作表不存在则创建
+            gc = await GoogleSheetsStorage._get_gspread_client()
+            sh = gc.open(GOOGLE_SHEET_NAME)
+            worksheet = sh.add_worksheet(title="KeywordReplies", rows=100, cols=5)
+            # 添加标题行
+            worksheet.append_row(["关键词", "回复内容", "链接", "链接文本", "创建时间"])
+            return worksheet
+        except Exception as e:
+            logger.error(f"获取关键词回复工作表失败: {e}")
+            raise
+
+    @staticmethod
+    async def add_keyword_reply(keyword: str, reply_text: str, link: str = "", link_text: str = ""):
+        """添加关键词回复"""
+        try:
+            worksheet = await GoogleSheetsStorage.get_keyword_replies_worksheet()
+            worksheet.append_row([
+                keyword.lower(),
+                reply_text,
+                link,
+                link_text,
+                datetime.now(TIMEZONE).isoformat()
+            ])
+            return True
+        except Exception as e:
+            logger.error(f"添加关键词回复失败: {e}")
+            return False
+
+    @staticmethod
+    async def get_keyword_replies():
+        """获取所有关键词回复"""
+        try:
+            worksheet = await GoogleSheetsStorage.get_keyword_replies_worksheet()
+            records = worksheet.get_all_records()
+            return records
+        except Exception as e:
+            logger.error(f"获取关键词回复失败: {e}")
+            return []
+
+    @staticmethod
+    async def delete_keyword_reply(keyword: str):
+        """删除关键词回复"""
+        try:
+            worksheet = await GoogleSheetsStorage.get_keyword_replies_worksheet()
+            records = worksheet.get_all_records()
+            
+            # 找到匹配的行并删除
+            for i, record in enumerate(records, start=2):  # 从第2行开始
+                if record["关键词"].lower() == keyword.lower():
+                    worksheet.delete_rows(i)
+                    return True
+            return False
+        except Exception as e:
+            logger.error(f"删除关键词回复失败: {e}")
+            return False
 class BanManager:
     """封禁管理工具类"""
     
@@ -990,7 +1053,118 @@ async def unmute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         error_msg = await update.message.reply_text(f"❌ 解除禁言失败: {str(e)}")
         asyncio.create_task(delete_message_later(error_msg))
         logger.error(f"解除禁言失败: {e}")
+async def keyword_reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理关键词回复命令"""
+    if not await is_admin(update, context):
+        msg = await update.message.reply_text("❌ 只有管理员可以使用此命令")
+        asyncio.create_task(delete_message_later(msg))
+        return
 
+    if not context.args or len(context.args) < 2:
+        help_text = (
+            "📝 关键词回复管理命令:\n\n"
+            "/reply add <关键词> <回复内容> [链接] [链接文本] - 添加关键词回复\n"
+            "/reply del <关键词> - 删除关键词回复\n"
+            "/reply list - 查看所有关键词回复\n\n"
+            "示例:\n"
+            "/reply add 帮助 这是帮助信息 https://example.com 点击这里"
+        )
+        await update.message.reply_text(help_text)
+        return
+
+    action = context.args[0].lower()
+    
+    if action == "add":
+        if len(context.args) < 3:
+            await update.message.reply_text("❌ 格式错误，需要至少提供关键词和回复内容")
+            return
+            
+        keyword = context.args[1]
+        reply_text = " ".join(context.args[2:])
+        
+        # 解析链接和链接文本
+        link = ""
+        link_text = ""
+        if "[链接]" in reply_text and "[链接文本]" in reply_text:
+            parts = reply_text.split("[链接]")
+            reply_text = parts[0].strip()
+            link_parts = parts[1].split("[链接文本]")
+            link = link_parts[0].strip()
+            link_text = link_parts[1].strip() if len(link_parts) > 1 else "点击这里"
+        
+        success = await GoogleSheetsStorage.add_keyword_reply(
+            keyword=keyword,
+            reply_text=reply_text,
+            link=link,
+            link_text=link_text
+        )
+        
+        if success:
+            await update.message.reply_text(f"✅ 已添加关键词回复: {keyword}")
+        else:
+            await update.message.reply_text("❌ 添加关键词回复失败")
+            
+    elif action == "del":
+        if len(context.args) < 2:
+            await update.message.reply_text("❌ 请提供要删除的关键词")
+            return
+            
+        keyword = context.args[1]
+        success = await GoogleSheetsStorage.delete_keyword_reply(keyword)
+        
+        if success:
+            await update.message.reply_text(f"✅ 已删除关键词回复: {keyword}")
+        else:
+            await update.message.reply_text(f"❌ 未找到关键词: {keyword}")
+            
+    elif action == "list":
+        replies = await GoogleSheetsStorage.get_keyword_replies()
+        
+        if not replies:
+            await update.message.reply_text("暂无关键词回复配置")
+            return
+            
+        message = "📋 关键词回复列表:\n\n"
+        for reply in replies:
+            message += (
+                f"🔑 关键词: {reply['关键词']}\n"
+                f"💬 回复: {reply['回复内容']}\n"
+            )
+            if reply.get("链接"):
+                message += f"🔗 链接: {reply['链接']} ({reply.get('链接文本', '点击这里')})\n"
+            message += "━━━━━━━━━━━━━━\n"
+            
+        await update.message.reply_text(message)
+        
+    else:
+        await update.message.reply_text("❌ 未知操作，请使用 add/del/list")
+async def auto_reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """自动回复关键词消息"""
+    if not update.message or not update.message.text:
+        return
+        
+    text = update.message.text.lower()
+    replies = await GoogleSheetsStorage.get_keyword_replies()
+    
+    for reply in replies:
+        if reply["关键词"].lower() in text:
+            # 构建回复内容
+            reply_text = reply["回复内容"]
+            
+            # 如果有链接，添加按钮
+            if reply.get("链接"):
+                keyboard = [[InlineKeyboardButton(
+                    reply.get("链接文本", "点击这里"), 
+                    url=reply["链接"]
+                )]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await update.message.reply_text(
+                    reply_text,
+                    reply_markup=reply_markup
+                )
+            else:
+                await update.message.reply_text(reply_text)
+            break
 async def records_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """处理/records命令"""
     if not await is_admin(update, context):
@@ -1151,6 +1325,8 @@ async def lifespan(app: FastAPI):
     bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND) & filters.Regex(r'(?i)^(gm|早|早上好|早安|good morning)$'), morning_greeting_handler))
     bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND) & filters.Regex(r'(?i)^(gn|晚安|晚上好|good night|night|nighty night|晚安安|睡觉啦|睡啦|去睡了)$'), goodnight_greeting_handler))
     bot_app.add_handler(CommandHandler("comfort", comfort_handler))
+    bot_app.add_handler(CommandHandler("reply", keyword_reply_handler))
+    bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), auto_reply_handler))
     await bot_app.initialize()
     await bot_app.start()
     if WEBHOOK_URL:
