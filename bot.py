@@ -60,7 +60,7 @@ class GoogleSheetsStorage:
             return []
             
         try:
-            worksheet = await GoogleSheetsStorage._get_worksheet()
+            worksheet = await GoogleSheetsStorage._get_worksheet()  # 不传参数获取默认工作表
             records = worksheet.get_all_records()
             
             expected_columns = ["操作时间", "电报群组名称", "用户ID", "用户名", "名称", "操作管理", "理由", "操作"]
@@ -75,17 +75,45 @@ class GoogleSheetsStorage:
                 return []
                 
             return records
+    except Exception as e:
+        logger.error(f"从Google Sheet加载数据失败: {e}")
+        # Create a local backup file
+        try:
+            with open("local_backup.json", "r") as f:
+                return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return []
+        except Exception as backup_error:
+            logger.error(f"本地备份加载失败: {backup_error}")
+            return []
+    @staticmethod
+    async def _get_gspread_client():
+        """获取gspread客户端"""
+        try:
+            # Get credentials with proper padding
+            creds_b64 = GOOGLE_SHEETS_CREDENTIALS.strip()
+            padding = len(creds_b64) % 4
+            if padding:
+                creds_b64 += '=' * (4 - padding)
+            
+            # Decode
+            creds_json = base64.b64decode(creds_b64).decode('utf-8')
+            creds_dict = json.loads(creds_json)
+            
+            # Verify we got the private key correctly
+            if not creds_dict.get('private_key'):
+                raise ValueError("Invalid credentials - missing private key")
+                
+            scope = [
+                'https://spreadsheets.google.com/feeds',
+                'https://www.googleapis.com/auth/drive'
+            ]
+            
+            credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+            return gspread.authorize(credentials)
         except Exception as e:
-            logger.error(f"从Google Sheet加载数据失败: {e}")
-            # Create a local backup file
-            try:
-                with open("local_backup.json", "r") as f:
-                    return json.load(f)
-            except (FileNotFoundError, json.JSONDecodeError):
-                return []
-            except Exception as backup_error:
-                logger.error(f"本地备份加载失败: {backup_error}")
-                return []
+            logger.error(f"获取gspread客户端失败: {str(e)}")
+            raise
 
     @staticmethod
     async def _get_worksheet(sheet_name: str = None) -> gspread.Worksheet:
@@ -221,15 +249,22 @@ class GoogleSheetsStorage:
             return False
 
     @staticmethod
-    async def get_keyword_replies():
-        """获取所有关键词回复"""
+    async def get_keyword_replies_worksheet():
+        """获取关键词回复工作表"""
         try:
-            worksheet = await GoogleSheetsStorage.get_keyword_replies_worksheet()
-            records = worksheet.get_all_records()
-            return records
+            worksheet = await GoogleSheetsStorage._get_worksheet("KeywordReplies")
+            return worksheet
+        except gspread.WorksheetNotFound:
+            # 如果工作表不存在则创建
+            gc = await GoogleSheetsStorage._get_gspread_client()
+            sh = gc.open(GOOGLE_SHEET_NAME)
+            worksheet = sh.add_worksheet(title="KeywordReplies", rows=100, cols=5)
+            # 添加标题行
+            worksheet.append_row(["关键词", "回复内容", "链接", "链接文本", "创建时间"])
+            return worksheet
         except Exception as e:
-            logger.error(f"获取关键词回复失败: {e}")
-            return []
+            logger.error(f"获取关键词回复工作表失败: {e}")
+            raise
 
     @staticmethod
     async def delete_keyword_reply(keyword: str):
