@@ -212,24 +212,33 @@ class GoogleSheetsStorage:
         except Exception as e:
             logger.error(f"保存到Google Sheet失败: {e}")
             return False
-
     @staticmethod
-    async def get_keyword_replies_worksheet():
-        """获取关键词回复工作表"""
+    async def get_keyword_replies() -> List[Dict[str, str]]:
+        """获取所有关键词回复配置"""
         try:
-            worksheet = await GoogleSheetsStorage._get_worksheet("KeywordReplies")
-            return worksheet
-        except gspread.WorksheetNotFound:
-            # 如果工作表不存在则创建
-            gc = await GoogleSheetsStorage._get_gspread_client()
-            sh = gc.open(GOOGLE_SHEET_NAME)
-            worksheet = sh.add_worksheet(title="KeywordReplies", rows=100, cols=5)
-            # 添加标题行
-            worksheet.append_row(["关键词", "回复内容", "链接", "链接文本", "创建时间"])
-            return worksheet
+            worksheet = await GoogleSheetsStorage.get_keyword_replies_worksheet()
+            records = worksheet.get_all_records()
+            return records
         except Exception as e:
-            logger.error(f"获取关键词回复工作表失败: {e}")
-            raise
+            logger.error(f"获取关键词回复失败: {e}")
+            return []
+        @staticmethod
+        async def get_keyword_replies_worksheet():
+            """获取关键词回复工作表"""
+            try:
+                worksheet = await GoogleSheetsStorage._get_worksheet("KeywordReplies")
+                return worksheet
+            except gspread.WorksheetNotFound:
+                # 如果工作表不存在则创建
+                gc = await GoogleSheetsStorage._get_gspread_client()
+                sh = gc.open(GOOGLE_SHEET_NAME)
+                worksheet = sh.add_worksheet(title="KeywordReplies", rows=100, cols=5)
+                # 添加标题行
+                worksheet.append_row(["关键词", "回复内容", "链接", "链接文本", "创建时间"])
+                return worksheet
+            except Exception as e:
+                logger.error(f"获取关键词回复工作表失败: {e}")
+                raise
 
     @staticmethod
     async def add_keyword_reply(keyword: str, reply_text: str, link: str = "", link_text: str = ""):
