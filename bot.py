@@ -75,17 +75,17 @@ class GoogleSheetsStorage:
                 return []
                 
             return records
-    except Exception as e:
-        logger.error(f"从Google Sheet加载数据失败: {e}")
-        # Create a local backup file
-        try:
-            with open("local_backup.json", "r") as f:
-                return json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            return []
-        except Exception as backup_error:
-            logger.error(f"本地备份加载失败: {backup_error}")
-            return []
+        except Exception as e:
+            logger.error(f"从Google Sheet加载数据失败: {e}")
+            # Create a local backup file
+            try:
+                with open("local_backup.json", "r") as f:
+                    return json.load(f)
+            except (FileNotFoundError, json.JSONDecodeError):
+                return []
+            except Exception as backup_error:
+                logger.error(f"本地备份加载失败: {backup_error}")
+                return []
     @staticmethod
     async def _get_gspread_client():
         """获取gspread客户端"""
