@@ -73,6 +73,14 @@ class TwitterMonitor:
             access_token_secret=self.access_token_secret
         )
         self.last_checked = {}  # 记录上次检查时间（避免重复推送）
+        try:
+            # 测试 API 连接
+            test_user = "Twitter"  # 官方账号，确保存在
+            self.client.get_user(username=test_user)
+            logger.info("✅ Twitter API 连接测试通过")
+        except Exception as e:
+            logger.error(f"❌ Twitter API 连接失败: {e}")
+            raise RuntimeError("Twitter 初始化失败")
     async def get_latest_tweets(self, username: str, since_minutes: int = 5) -> List[Dict]:
         """获取某个用户的最新推文（仅返回最近几分钟的）"""
         try:
@@ -1509,7 +1517,12 @@ async def export_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global bot_app, bot_initialized, ban_records
+    global bot_app, bot_initialized, ban_records, twitter_monitor
+    logger.info(f"TWITTER_API_KEY 存在: {bool(TWITTER_API_KEY)}")
+    logger.info(f"TWITTER_API_SECRET_KEY 存在: {bool(TWITTER_API_SECRET_KEY)}")
+    logger.info(f"TWITTER_ACCESS_TOKEN 存在: {bool(TWITTER_ACCESS_TOKEN)}")
+    logger.info(f"TWITTER_ACCESS_TOKEN_SECRET 存在: {bool(TWITTER_ACCESS_TOKEN_SECRET)}")
+
         # Initialize Twitter monitor if credentials exist
         # 检查 Twitter 环境变量是否全部配置
     twitter_creds_configured = all([
