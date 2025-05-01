@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 import pandas as pd
 import gspread
 from typing import List, Dict, Optional
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from oauth2client.service_account import ServiceAccountCredentials
 from fastapi import FastAPI, Request, HTTPException, APIRouter
 from telegram import (
@@ -70,28 +71,55 @@ class TwitterMonitor:
             access_token=self.access_token,
             access_token_secret=self.access_token_secret
         )
-    def get_latest_tweets(self, username: str, count: int = 5) -> List[Dict]:
-        """获取某个用户的最新推文"""
+        self.last_checked = {}  # 记录上次检查时间（避免重复推送）
+
+    async def get_latest_tweets(self, username: str, since_minutes: int = 5) -> List[Dict]:
+        """获取某个用户的最新推文（仅返回最近几分钟的）"""
         try:
             user = self.client.get_user(username=username)
             tweets = self.client.get_users_tweets(
                 user.data.id,
-                max_results=count,
+                max_results=5,  # 获取最新 5 条
                 tweet_fields=["created_at", "public_metrics"]
             )
-            return [
-                {
-                    "text": tweet.text,
-                    "created_at": tweet.created_at,
-                    "likes": tweet.public_metrics["like_count"],
-                    "retweets": tweet.public_metrics["retweet_count"],
-                    "url": f"https://twitter.com/{username}/status/{tweet.id}"
-                }
-                for tweet in tweets.data
-            ]
+            
+            now = datetime.utcnow()
+            new_tweets = []
+            
+            for tweet in tweets.data:
+                tweet_time = tweet.created_at.replace(tzinfo=None)
+                if (now - tweet_time) < timedelta(minutes=since_minutes):
+                    new_tweets.append({
+                        "text": tweet.text,
+                        "created_at": tweet_time,
+                        "likes": tweet.public_metrics["like_count"],
+                        "retweets": tweet.public_metrics["retweet_count"],
+                        "url": f"https://twitter.com/{username}/status/{tweet.id}"
+                    })
+            
+            return new_tweets
         except Exception as e:
             logger.error(f"获取 Twitter 推文失败: {e}")
             return []
+    async def check_twitter_updates(context: ContextTypes.DEFAULT_TYPE):
+        """定时检查 Twitter 更新并推送到 Telegram"""
+        chat_id = -100123456789  # 替换为你的 Telegram 群组 ID
+        accounts = ["MyStonks_Org", "MyStonksCN"]  # 要监控的账号
+        
+        for username in accounts:
+            tweets = await twitter_monitor.get_latest_tweets(username)
+            if not tweets:
+                continue
+            
+            for tweet in tweets:
+                message = (
+                    f"🐦 **@{username} 的新推文**\n\n"
+                    f"{tweet['text']}\n\n"
+                    f"🕒 {tweet['created_at'].strftime('%Y-%m-%d %H:%M')}\n"
+                    f"👍 {tweet['likes']} | 🔁 {tweet['retweets']}\n"
+                    f"🔗 {tweet['url']}"
+                )
+                await context.bot.send_message(chat_id=chat_id, text=message, parse_mode="Markdown")
     def monitor_keyword(self, keyword: str, count: int = 5) -> List[Dict]:
         """监控某个关键词的最新推文"""
         try:
@@ -1472,7 +1500,7 @@ async def export_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global bot_app, bot_initialized, ban_records
-    
+    twitter_monitor = TwitterMonitor()
     if not TOKEN:
         raise ValueError("TELEGRAM_BOT_TOKEN environment variable未设置")
     
@@ -1507,6 +1535,9 @@ async def lifespan(app: FastAPI):
     bot_app.add_handler(CommandHandler("comfort", comfort_handler))
     bot_app.add_handler(CommandHandler("reply", keyword_reply_handler))
     bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), auto_reply_handler))
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(check_twitter_updates, "interval", minutes=5, args=[bot_app])
+    scheduler.start()
     await bot_app.initialize()
     await bot_app.start()
     if WEBHOOK_URL:
@@ -1514,12 +1545,11 @@ async def lifespan(app: FastAPI):
 
     bot_initialized = True
     yield
-    
+    scheduler.shutdown()
     if bot_app:
         await bot_app.stop()
         await bot_app.shutdown()
 router = APIRouter()
-twitter_monitor = TwitterMonitor()
 @router.get("/health")
 async def health_check():
     return {
