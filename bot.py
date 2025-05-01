@@ -73,7 +73,34 @@ class TwitterMonitor:
             access_token_secret=self.access_token_secret
         )
         self.last_checked = {}  # 记录上次检查时间（避免重复推送）
-
+    async def get_latest_tweets(self, username: str, since_minutes: int = 5) -> List[Dict]:
+        """获取某个用户的最新推文（仅返回最近几分钟的）"""
+        try:
+            user = self.client.get_user(username=username)
+            tweets = self.client.get_users_tweets(
+                user.data.id,
+                max_results=5,  # 获取最新 5 条
+                tweet_fields=["created_at", "public_metrics"]
+            )
+            
+            now = datetime.utcnow()
+            new_tweets = []
+            
+            for tweet in tweets.data:
+                tweet_time = tweet.created_at.replace(tzinfo=None)
+                if (now - tweet_time) < timedelta(minutes=since_minutes):
+                    new_tweets.append({
+                        "text": tweet.text,
+                        "created_at": tweet_time,
+                        "likes": tweet.public_metrics["like_count"],
+                        "retweets": tweet.public_metrics["retweet_count"],
+                        "url": f"https://twitter.com/{username}/status/{tweet.id}"
+                    })
+            
+            return new_tweets
+        except Exception as e:
+            logger.error(f"获取 Twitter 推文失败: {e}")
+            return []
     def monitor_keyword(self, keyword: str, count: int = 5) -> List[Dict]:
         """监控某个关键词的最新推文"""
         try:
@@ -96,38 +123,14 @@ class TwitterMonitor:
         except Exception as e:
             logger.error(f"监控 Twitter 关键词失败: {e}")
             return []
-async def get_latest_tweets(self, username: str, since_minutes: int = 5) -> List[Dict]:
-    """获取某个用户的最新推文（仅返回最近几分钟的）"""
-    try:
-        user = self.client.get_user(username=username)
-        tweets = self.client.get_users_tweets(
-            user.data.id,
-            max_results=5,  # 获取最新 5 条
-            tweet_fields=["created_at", "public_metrics"]
-        )
-        
-        now = datetime.utcnow()
-        new_tweets = []
-        
-        for tweet in tweets.data:
-            tweet_time = tweet.created_at.replace(tzinfo=None)
-            if (now - tweet_time) < timedelta(minutes=since_minutes):
-                new_tweets.append({
-                    "text": tweet.text,
-                    "created_at": tweet_time,
-                    "likes": tweet.public_metrics["like_count"],
-                    "retweets": tweet.public_metrics["retweet_count"],
-                    "url": f"https://twitter.com/{username}/status/{tweet.id}"
-                })
-        
-        return new_tweets
-    except Exception as e:
-        logger.error(f"获取 Twitter 推文失败: {e}")
-        return []
 async def check_twitter_updates(context: ContextTypes.DEFAULT_TYPE):
-    """定时检查 Twitter 更新并推送到 Telegram"""
-    chat_id = -100123456789  # 替换为你的 Telegram 群组 ID
-    accounts = ["MyStonks_Org", "MyStonksCN"]  # 要监控的账号
+    """Check for Twitter updates periodically"""
+    if not twitter_monitor:
+        logger.warning("Twitter monitor not initialized - skipping update check")
+        return
+    
+    chat_id = -100123456789  # Replace with your group ID
+    accounts = ["MyStonks_Org", "MyStonksCN"]  # Accounts to monitor
     
     for username in accounts:
         tweets = await twitter_monitor.get_latest_tweets(username)
@@ -143,7 +146,6 @@ async def check_twitter_updates(context: ContextTypes.DEFAULT_TYPE):
                 f"🔗 {tweet['url']}"
             )
             await context.bot.send_message(chat_id=chat_id, text=message, parse_mode="Markdown")
-
 class GoogleSheetsStorage:
     _last_request_time = 0
     
@@ -1097,7 +1099,11 @@ async def comfort_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"发送安慰消息失败: {e}")
         await update.message.reply_text("😔 安慰服务暂时不可用，先抱抱~")
 async def twitter_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """获取 Twitter 最新动态"""
+    """Get Twitter updates"""
+    if not twitter_monitor:
+        await update.message.reply_text("❌ Twitter功能未启用，请检查配置")
+        return
+    
     if not context.args:
         await update.message.reply_text("用法: /twitter <用户名> 或 /twitter search <关键词>")
         return
@@ -1114,7 +1120,7 @@ async def twitter_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     else:
         username = context.args[0]
-        tweets = twitter_monitor.get_latest_tweets(username)
+        tweets = await twitter_monitor.get_latest_tweets(username)
         if not tweets:
             await update.message.reply_text(f"未找到 @{username} 的推文")
             return
@@ -1123,7 +1129,7 @@ async def twitter_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for tweet in tweets
         )
     
-    await update.message.reply_text(response[:4000])  # Telegram 消息限制 4096 字符
+    await update.message.reply_text(response[:4000])  # Telegram message limit
 async def goodnight_greeting_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     greetings = [
@@ -1501,10 +1507,17 @@ async def export_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global bot_app, bot_initialized, ban_records
-    twitter_monitor = TwitterMonitor()
+        # Initialize Twitter monitor if credentials exist
+    if all([TWITTER_API_KEY, TWITTER_API_SECRET_KEY, TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_TOKEN_SECRET]):
+        twitter_monitor = TwitterMonitor()
+        logger.info("Twitter monitor initialized")
+    else:
+        logger.warning("Twitter credentials not fully configured - Twitter features disabled")
+        twitter_monitor = None
+
     if not TOKEN:
-        raise ValueError("TELEGRAM_BOT_TOKEN environment variable未设置")
-    
+        raise ValueError("TELEGRAM_BOT_TOKEN environment variable not set")
+    twitter_monitor = TwitterMonitor()    
     # Try Google Sheets connection only if credentials exist
     if GOOGLE_SHEETS_CREDENTIALS:
         try:
