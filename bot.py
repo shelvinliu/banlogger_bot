@@ -47,7 +47,6 @@ WEBHOOK_URL = f"{os.getenv('RENDER_EXTERNAL_URL', '')}{WEBHOOK_PATH}" if os.gete
 TIMEZONE = pytz.timezone(os.getenv("TIMEZONE", "Asia/Shanghai"))
 MAX_RECORDS_DISPLAY = 10
 EXCEL_FILE = "ban_records.xlsx"
-twitter_monitor = TwitterMonitor()
 TWITTER_API_KEY=os.getenv("TWITTER_API_KEY")
 TWITTER_API_SECRET_KEY=os.getenv("TWITTER_API_SECRET_KEY")
 TWITTER_ACCESS_TOKEN=os.getenv("TWITTER_ACCESS_TOKEN")
@@ -1520,7 +1519,7 @@ async def lifespan(app: FastAPI):
         await bot_app.stop()
         await bot_app.shutdown()
 router = APIRouter()
-
+twitter_monitor = TwitterMonitor()
 @router.get("/health")
 async def health_check():
     return {
