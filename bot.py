@@ -1517,7 +1517,7 @@ async def lifespan(app: FastAPI):
 
     if not TOKEN:
         raise ValueError("TELEGRAM_BOT_TOKEN environment variable not set")
-    twitter_monitor = TwitterMonitor()    
+       
     # Try Google Sheets connection only if credentials exist
     if GOOGLE_SHEETS_CREDENTIALS:
         try:
