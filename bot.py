@@ -1518,13 +1518,7 @@ async def export_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global bot_app, bot_initialized, ban_records, twitter_monitor
-    logger.info(f"TWITTER_API_KEY 存在: {bool(TWITTER_API_KEY)}")
-    logger.info(f"TWITTER_API_SECRET_KEY 存在: {bool(TWITTER_API_SECRET_KEY)}")
-    logger.info(f"TWITTER_ACCESS_TOKEN 存在: {bool(TWITTER_ACCESS_TOKEN)}")
-    logger.info(f"TWITTER_ACCESS_TOKEN_SECRET 存在: {bool(TWITTER_ACCESS_TOKEN_SECRET)}")
-
-        # Initialize Twitter monitor if credentials exist
-        # 检查 Twitter 环境变量是否全部配置
+    twitter_monitor = None  # 默认禁用
     twitter_creds_configured = all([
         TWITTER_API_KEY,
         TWITTER_API_SECRET_KEY,
