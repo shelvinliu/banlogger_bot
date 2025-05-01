@@ -80,7 +80,7 @@ class TwitterMonitor:
                         "created_at": tweet_time,
                         "likes": tweet.likeCount,
                         "retweets": tweet.retweetCount,
-                        "url": f"https://twitter.com/{username}/status/{tweet.id}"
+                        "url": f"https://x.com/{username}/status/{tweet.id}"
                     })
             return tweets
         except Exception as e:
@@ -102,7 +102,7 @@ class TwitterMonitor:
                     "created_at": tweet.created_at,
                     "likes": tweet.public_metrics["like_count"],
                     "retweets": tweet.public_metrics["retweet_count"],
-                    "url": f"https://twitter.com/user/status/{tweet.id}"
+                    "url": f"https://x.com/user/status/{tweet.id}"
                 }
                 for tweet in tweets.data
             ]
