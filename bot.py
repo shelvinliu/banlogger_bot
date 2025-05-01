@@ -385,6 +385,44 @@ async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     except Exception as e:
         logger.error(f"检查管理员状态失败: {e}")
         return False
+NOON_GREETINGS = [
+    # 温馨系列
+    f"☀️ {{}}午安！阳光正好，记得休息一会儿哦~",
+    f"🍱 {{}}午安！该享用美味的午餐啦~",
+    f"😴 {{}}午安！需要来个午睡充电吗？",
+    f"🌤️ {{}}午安！一天已经过半啦，继续加油~",
+    
+    # 幽默系列
+    f"⏰ {{}}午安！你的胃在抗议啦，快去喂它~",
+    f"💤 {{}}午安！困了可以学猫咪打个盹~",
+    f"🍵 {{}}午安！来杯茶提提神吧~",
+    f"🍜 {{}}午安！泡面还是外卖？这是个问题~",
+    
+    # 励志系列
+    f"🚀 {{}}午安！下午也要元气满满~",
+    f"💪 {{}}午安！上午表现很棒，下午再接再厉~",
+    f"🎯 {{}}午安！上午的目标完成了吗？",
+    
+    # 特别彩蛋
+    f"🍱 {{}}午安！今日午餐推荐：{random.choice(['拉面','寿司','饺子','盖饭','沙拉'])}~",
+    f"☕ {{}}午安！咖啡因含量：{random.randint(10,100)}%",
+]
+async def noon_greeting_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    greetings = [g.format(user.first_name) for g in NOON_GREETINGS]
+    
+    reply = random.choice(greetings)
+    
+    # 10%概率附加彩蛋
+    if random.random() < 0.1:
+        emojis = ["✨", "🌟", "🎉", "💫", "🎊"]
+        reply += f"\n\n{random.choice(emojis)} 彩蛋：你是今天第{random.randint(1,100)}个说午安的小可爱~"
+    
+    sent_message = await update.message.reply_text(reply)
+    logger.info(f"🌞 向 {user.full_name} 发送了午安问候")
+    
+    # 1分钟后自动删除
+    asyncio.create_task(delete_message_later(sent_message, delay=60))
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """处理/start命令"""
@@ -1373,6 +1411,7 @@ async def lifespan(app: FastAPI):
     bot_app.add_handler(CommandHandler("comfort", comfort_handler))
     bot_app.add_handler(CommandHandler("reply", keyword_reply_handler))
     bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), auto_reply_handler))
+    bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND) & filters.Regex(r'(?i)^(午安|中午好|good afternoon|noon)$'),noon_greeting_handler))
     await bot_app.initialize()
     await bot_app.start()
     if WEBHOOK_URL:
