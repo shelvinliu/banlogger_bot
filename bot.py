@@ -56,7 +56,6 @@ TWITTER_ACCESS_TOKEN_SECRET=os.getenv("TWITTER_ACCESS_TOKEN_SECRET")
 bot_app: Optional[Application] = None
 bot_initialized: bool = False
 ban_records: List[Dict[str, Any]] = []
-twitter_monitor: Optional[TwitterMonitor] = None
 
 
 class TwitterMonitor:
@@ -124,6 +123,7 @@ class TwitterMonitor:
         except Exception as e:
             logger.error(f"监控 Twitter 关键词失败: {e}")
             return []
+twitter_monitor: Optional[TwitterMonitor] = None
 async def check_twitter_updates(context: ContextTypes.DEFAULT_TYPE):
     """Check for Twitter updates periodically"""
     global twitter_monitor
