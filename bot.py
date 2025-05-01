@@ -6,6 +6,7 @@ import pytz
 import random
 import asyncio
 import subprocess
+import snscrape.modules.twitter as sntwitter
 import logging
 import base64
 from datetime import datetime, timedelta
@@ -61,29 +62,25 @@ ban_records: List[Dict[str, Any]] = []
 
 class TwitterMonitor:
     def __init__(self):
-        print("✅ TwitterMonitor 初始化完成（使用爬虫方式）")
+        print("✅ TwitterMonitor 初始化完成（使用 Python API）")
 
     async def get_latest_tweets(self, username: str, since_minutes: int = 5) -> List[Dict]:
         now = datetime.utcnow()
+        tweets = []
+
         try:
-            cmd = [
-                "snscrape", 
-                "--jsonl", 
-                "--max-results", "5",
-                f"twitter-user:{username}"
-            ]
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            tweets = []
-            for line in result.stdout.strip().split("\n"):
-                data = json.loads(line)
-                created_at = datetime.fromisoformat(data["date"].replace("Z", "+00:00"))
-                if (now - created_at) < timedelta(minutes=since_minutes):
+            scraper = sntwitter.TwitterUserScraper(username)
+            for i, tweet in enumerate(scraper.get_items()):
+                if i >= 5:
+                    break
+                tweet_time = tweet.date.replace(tzinfo=None)
+                if (now - tweet_time) < timedelta(minutes=since_minutes):
                     tweets.append({
-                        "text": data["content"],
-                        "created_at": created_at,
-                        "likes": data.get("likeCount", 0),
-                        "retweets": data.get("retweetCount", 0),
-                        "url": data["url"]
+                        "text": tweet.content,
+                        "created_at": tweet_time,
+                        "likes": tweet.likeCount,
+                        "retweets": tweet.retweetCount,
+                        "url": f"https://twitter.com/{username}/status/{tweet.id}"
                     })
             return tweets
         except Exception as e:
