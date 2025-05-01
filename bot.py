@@ -385,7 +385,10 @@ async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     except Exception as e:
         logger.error(f"检查管理员状态失败: {e}")
         return False
-NOON_GREETINGS = [
+
+async def noon_greeting_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    NOON_GREETINGS = [
     # 温馨系列
     f"☀️ {{}}午安！阳光正好，记得休息一会儿哦~",
     f"🍱 {{}}午安！该享用美味的午餐啦~",
@@ -406,9 +409,7 @@ NOON_GREETINGS = [
     # 特别彩蛋
     f"🍱 {{}}午安！今日午餐推荐：{random.choice(['拉面','寿司','饺子','盖饭','沙拉'])}~",
     f"☕ {{}}午安！咖啡因含量：{random.randint(10,100)}%",
-]
-async def noon_greeting_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    ]
     greetings = [g.format(user.first_name) for g in NOON_GREETINGS]
     
     reply = random.choice(greetings)
@@ -425,6 +426,7 @@ async def noon_greeting_handler(update: Update, context: ContextTypes.DEFAULT_TY
     asyncio.create_task(delete_message_later(sent_message, delay=60))
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    
     """处理/start命令"""
     user = update.effective_user
     help_text = (
