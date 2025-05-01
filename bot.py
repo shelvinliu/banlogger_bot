@@ -234,7 +234,7 @@ class GoogleSheetsStorage:
             return []
     @staticmethod
     async def get_keyword_replies_worksheet():
-            """获取关键词回复工作表"""
+        """获取关键词回复工作表"""
         try:
             worksheet = await GoogleSheetsStorage._get_worksheet("KeywordReplies")
             return worksheet
