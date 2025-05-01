@@ -52,11 +52,12 @@ TWITTER_API_KEY=os.getenv("TWITTER_API_KEY")
 TWITTER_API_SECRET_KEY=os.getenv("TWITTER_API_SECRET_KEY")
 TWITTER_ACCESS_TOKEN=os.getenv("TWITTER_ACCESS_TOKEN")
 TWITTER_ACCESS_TOKEN_SECRET=os.getenv("TWITTER_ACCESS_TOKEN_SECRET")
-twitter_monitor = None
 # 全局变量
 bot_app: Optional[Application] = None
 bot_initialized: bool = False
 ban_records: List[Dict[str, Any]] = []
+twitter_monitor: Optional[TwitterMonitor] = None
+
 
 class TwitterMonitor:
     def __init__(self):
@@ -1510,6 +1511,24 @@ async def export_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def lifespan(app: FastAPI):
     global bot_app, bot_initialized, ban_records
         # Initialize Twitter monitor if credentials exist
+        # 检查 Twitter 环境变量是否全部配置
+    twitter_creds_configured = all([
+        TWITTER_API_KEY,
+        TWITTER_API_SECRET_KEY,
+        TWITTER_ACCESS_TOKEN,
+        TWITTER_ACCESS_TOKEN_SECRET
+    ])
+
+    if twitter_creds_configured:
+        try:
+            twitter_monitor = TwitterMonitor()
+            logger.info("✅ Twitter 监控器已初始化")
+        except Exception as e:
+            logger.error(f"❌ Twitter 初始化失败: {e}")
+            twitter_monitor = None
+    else:
+        logger.warning("⚠️ Twitter 凭据未完整配置，Twitter 功能已禁用")
+        twitter_monitor = None
     if all([TWITTER_API_KEY, TWITTER_API_SECRET_KEY, TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_TOKEN_SECRET]):
         twitter_monitor = TwitterMonitor()
         logger.info("Twitter monitor initialized")
