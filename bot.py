@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import tweepy
 import pytz
 import random
 import asyncio
@@ -11,6 +12,7 @@ from typing import Optional, Dict, Any, List
 from contextlib import asynccontextmanager
 import pandas as pd
 import gspread
+from typing import List, Dict, Optional
 from oauth2client.service_account import ServiceAccountCredentials
 from fastapi import FastAPI, Request, HTTPException, APIRouter
 from telegram import (
@@ -45,11 +47,74 @@ WEBHOOK_URL = f"{os.getenv('RENDER_EXTERNAL_URL', '')}{WEBHOOK_PATH}" if os.gete
 TIMEZONE = pytz.timezone(os.getenv("TIMEZONE", "Asia/Shanghai"))
 MAX_RECORDS_DISPLAY = 10
 EXCEL_FILE = "ban_records.xlsx"
-
+twitter_monitor = TwitterMonitor()
+TWITTER_API_KEY=os.getenv("TWITTER_API_KEY")
+TWITTER_API_SECRET_KEY=os.getenv("TWITTER_API_SECRET_KEY")
+TWITTER_ACCESS_TOKEN=os.getenv("TWITTER_ACCESS_TOKEN")
+TWITTER_ACCESS_TOKEN_SECRET=os.getenv("TWITTER_ACCESS_TOKEN_SECRET")
 # 全局变量
 bot_app: Optional[Application] = None
 bot_initialized: bool = False
 ban_records: List[Dict[str, Any]] = []
+
+class TwitterMonitor:
+    def __init__(self):
+        self.api_key = os.getenv("TWITTER_API_KEY")
+        self.api_secret = os.getenv("TWITTER_API_SECRET_KEY")
+        self.access_token = os.getenv("TWITTER_ACCESS_TOKEN")
+        self.access_token_secret = os.getenv("TWITTER_ACCESS_TOKEN_SECRET")
+        
+        # 初始化 Twitter 客户端
+        self.client = tweepy.Client(
+            consumer_key=self.api_key,
+            consumer_secret=self.api_secret,
+            access_token=self.access_token,
+            access_token_secret=self.access_token_secret
+        )
+    def get_latest_tweets(self, username: str, count: int = 5) -> List[Dict]:
+        """获取某个用户的最新推文"""
+        try:
+            user = self.client.get_user(username=username)
+            tweets = self.client.get_users_tweets(
+                user.data.id,
+                max_results=count,
+                tweet_fields=["created_at", "public_metrics"]
+            )
+            return [
+                {
+                    "text": tweet.text,
+                    "created_at": tweet.created_at,
+                    "likes": tweet.public_metrics["like_count"],
+                    "retweets": tweet.public_metrics["retweet_count"],
+                    "url": f"https://twitter.com/{username}/status/{tweet.id}"
+                }
+                for tweet in tweets.data
+            ]
+        except Exception as e:
+            logger.error(f"获取 Twitter 推文失败: {e}")
+            return []
+    def monitor_keyword(self, keyword: str, count: int = 5) -> List[Dict]:
+        """监控某个关键词的最新推文"""
+        try:
+            tweets = self.client.search_recent_tweets(
+                query=keyword,
+                max_results=count,
+                tweet_fields=["created_at", "public_metrics", "author_id"]
+            )
+            return [
+                {
+                    "text": tweet.text,
+                    "author": tweet.author_id,  # 可以进一步获取用户名
+                    "created_at": tweet.created_at,
+                    "likes": tweet.public_metrics["like_count"],
+                    "retweets": tweet.public_metrics["retweet_count"],
+                    "url": f"https://twitter.com/user/status/{tweet.id}"
+                }
+                for tweet in tweets.data
+            ]
+        except Exception as e:
+            logger.error(f"监控 Twitter 关键词失败: {e}")
+            return []
 
 class GoogleSheetsStorage:
     _last_request_time = 0
@@ -1003,6 +1068,34 @@ async def comfort_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"发送安慰消息失败: {e}")
         await update.message.reply_text("😔 安慰服务暂时不可用，先抱抱~")
+async def twitter_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """获取 Twitter 最新动态"""
+    if not context.args:
+        await update.message.reply_text("用法: /twitter <用户名> 或 /twitter search <关键词>")
+        return
+    
+    if context.args[0] == "search":
+        keyword = " ".join(context.args[1:])
+        tweets = twitter_monitor.monitor_keyword(keyword)
+        if not tweets:
+            await update.message.reply_text("未找到相关推文")
+            return
+        response = "🔍 最新相关推文:\n\n" + "\n\n".join(
+            f"{tweet['text']}\n👍 {tweet['likes']} | 🔁 {tweet['retweets']}\n🔗 {tweet['url']}"
+            for tweet in tweets
+        )
+    else:
+        username = context.args[0]
+        tweets = twitter_monitor.get_latest_tweets(username)
+        if not tweets:
+            await update.message.reply_text(f"未找到 @{username} 的推文")
+            return
+        response = f"🐦 @{username} 的最新推文:\n\n" + "\n\n".join(
+            f"{tweet['text']}\n🕒 {tweet['created_at']}\n👍 {tweet['likes']} | 🔁 {tweet['retweets']}\n🔗 {tweet['url']}"
+            for tweet in tweets
+        )
+    
+    await update.message.reply_text(response[:4000])  # Telegram 消息限制 4096 字符
 async def goodnight_greeting_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     greetings = [
@@ -1408,6 +1501,7 @@ async def lifespan(app: FastAPI):
     bot_app.add_handler(CommandHandler("search", search_handler))
     bot_app.add_handler(CommandHandler("export", export_handler))
     bot_app.add_handler(CallbackQueryHandler(ban_reason_handler))
+    bot_app.add_handler(CommandHandler("twitter", twitter_handler))
     bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND) & filters.Regex(r'(?i)^(gm|早|早上好|早安|good morning)$'), morning_greeting_handler))
     bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND) & filters.Regex(r'(?i)^(gn|晚安|晚上好|good night|night|nighty night|晚安安|睡觉啦|睡啦|去睡了)$'), goodnight_greeting_handler))
     bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND) & filters.Regex(r'(?i)^(午安|中午好|good afternoon|noon)$'),noon_greeting_handler))
