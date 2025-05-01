@@ -125,7 +125,7 @@ class TwitterMonitor:
             return []
 async def check_twitter_updates(context: ContextTypes.DEFAULT_TYPE):
     """Check for Twitter updates periodically"""
-global twitter_monitor
+    global twitter_monitor
     if not twitter_monitor:
         logger.warning("Twitter monitor not initialized - skipping update check")
         return
@@ -1101,7 +1101,7 @@ async def comfort_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("😔 安慰服务暂时不可用，先抱抱~")
 async def twitter_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get Twitter updates"""
-global twitter_monitor
+    global twitter_monitor
     if not twitter_monitor:
         await update.message.reply_text("❌ Twitter功能未启用，请检查配置")
         return
