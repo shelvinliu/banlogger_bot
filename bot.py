@@ -52,6 +52,16 @@ bot_initialized: bool = False
 ban_records: List[Dict[str, Any]] = []
 
 class GoogleSheetsStorage:
+    _last_request_time = 0
+    
+    @staticmethod
+    async def _throttle():
+        """Enforce minimum delay between API calls"""
+        now = time.time()
+        elapsed = now - GoogleSheetsStorage._last_request_time
+        if elapsed < 1.1:  # 1.1 second minimum between requests
+            await asyncio.sleep(1.1 - elapsed)
+        GoogleSheetsStorage._last_request_time = time.time()
     @staticmethod
     async def load_from_sheet() -> List[Dict[str, Any]]:
         """从Google Sheet加载数据"""
