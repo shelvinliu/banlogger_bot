@@ -899,7 +899,7 @@ async def morning_greeting_handler(update: Update, context: ContextTypes.DEFAULT
     
     await update.message.reply_text(reply)
     logger.info(f"🌅 向 {user.full_name} 发送了早安问候")
-    asyncio.create_task(delete_message_later(sent_message, delay=60))
+    asyncio.create_task(delete_message_later(reply, delay=60))
 COMFORT_MESSAGES = [
     "🌧️ 市场下雨了，但别忘了雨后总有彩虹~",
     "📉 短期波动而已，咱们长期主义者笑看风云",
@@ -1057,7 +1057,7 @@ async def goodnight_greeting_handler(update: Update, context: ContextTypes.DEFAU
     
     await update.message.reply_text(reply)
     logger.info(f"🌃 向 {user.full_name} 发送了晚安问候")
-    asyncio.create_task(delete_message_later(sent_message, delay=60))
+    asyncio.create_task(delete_message_later(reply, delay=60))
 
 async def unmute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """处理/unmute命令"""
