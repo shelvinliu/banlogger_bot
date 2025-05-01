@@ -71,7 +71,7 @@ class TwitterMonitor:
         try:
             scraper = sntwitter.TwitterUserScraper(username)
             for i, tweet in enumerate(scraper.get_items()):
-                if i >= 5:
+                if i >= 1:
                     break
                 tweet_time = tweet.date.replace(tzinfo=None)
                 if (now - tweet_time) < timedelta(minutes=since_minutes):
