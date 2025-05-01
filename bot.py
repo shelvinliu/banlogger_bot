@@ -64,51 +64,48 @@ class TwitterMonitor:
         self.api_secret = os.getenv("TWITTER_API_SECRET_KEY")
         self.access_token = os.getenv("TWITTER_ACCESS_TOKEN")
         self.access_token_secret = os.getenv("TWITTER_ACCESS_TOKEN_SECRET")
-        
-        # 初始化 Twitter 客户端
-        self.client = tweepy.Client(
-            consumer_key=self.api_key,
-            consumer_secret=self.api_secret,
-            access_token=self.access_token,
-            access_token_secret=self.access_token_secret
+
+        # 使用 OAuth1.0a 初始化 tweepy API
+        auth = tweepy.OAuth1UserHandler(
+            self.api_key,
+            self.api_secret,
+            self.access_token,
+            self.access_token_secret
         )
-        self.last_checked = {}  # 记录上次检查时间（避免重复推送）
+
+        self.api = tweepy.API(auth)
+        self.last_checked = {}
+
         try:
-            # 测试 API 连接
-            test_user = "shelvinliu"  # 官方账号，确保存在
-            self.client.get_user(username=test_user)
-            logger.info("✅ Twitter API 连接测试通过")
+            test_user = "Twitter"
+            user = self.api.get_user(screen_name=test_user)
+            logger.info(f"✅ Twitter API 连接成功，测试用户: {user.name}")
         except Exception as e:
             logger.error(f"❌ Twitter API 连接失败: {e}")
             raise RuntimeError("Twitter 初始化失败")
+
     async def get_latest_tweets(self, username: str, since_minutes: int = 5) -> List[Dict]:
-        """获取某个用户的最新推文（仅返回最近几分钟的）"""
         try:
-            user = self.client.get_user(username=username)
-            tweets = self.client.get_users_tweets(
-                user.data.id,
-                max_results=5,  # 获取最新 5 条
-                tweet_fields=["created_at", "public_metrics"]
-            )
-            
+            tweets = self.api.user_timeline(screen_name=username, count=5, tweet_mode='extended')
             now = datetime.utcnow()
             new_tweets = []
-            
-            for tweet in tweets.data:
-                tweet_time = tweet.created_at.replace(tzinfo=None)
+
+            for tweet in tweets:
+                tweet_time = tweet.created_at
                 if (now - tweet_time) < timedelta(minutes=since_minutes):
                     new_tweets.append({
-                        "text": tweet.text,
+                        "text": tweet.full_text,
                         "created_at": tweet_time,
-                        "likes": tweet.public_metrics["like_count"],
-                        "retweets": tweet.public_metrics["retweet_count"],
+                        "likes": tweet.favorite_count,
+                        "retweets": tweet.retweet_count,
                         "url": f"https://twitter.com/{username}/status/{tweet.id}"
                     })
-            
+
             return new_tweets
         except Exception as e:
             logger.error(f"获取 Twitter 推文失败: {e}")
             return []
+
     def monitor_keyword(self, keyword: str, count: int = 5) -> List[Dict]:
         """监控某个关键词的最新推文"""
         try:
