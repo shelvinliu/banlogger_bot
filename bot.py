@@ -5,6 +5,7 @@ import tweepy
 import pytz
 import random
 import asyncio
+import subprocess
 import logging
 import base64
 from datetime import datetime, timedelta
@@ -60,50 +61,33 @@ ban_records: List[Dict[str, Any]] = []
 
 class TwitterMonitor:
     def __init__(self):
-        self.api_key = os.getenv("TWITTER_API_KEY")
-        self.api_secret = os.getenv("TWITTER_API_SECRET_KEY")
-        self.access_token = os.getenv("TWITTER_ACCESS_TOKEN")
-        self.access_token_secret = os.getenv("TWITTER_ACCESS_TOKEN_SECRET")
-
-        # 使用 OAuth1.0a 初始化 tweepy API
-        auth = tweepy.OAuth1UserHandler(
-            self.api_key,
-            self.api_secret,
-            self.access_token,
-            self.access_token_secret
-        )
-
-        self.api = tweepy.API(auth)
-        self.last_checked = {}
-
-        try:
-            test_user = "Twitter"
-            user = self.api.get_user(screen_name=test_user)
-            logger.info(f"✅ Twitter API 连接成功，测试用户: {user.name}")
-        except Exception as e:
-            logger.error(f"❌ Twitter API 连接失败: {e}")
-            raise RuntimeError("Twitter 初始化失败")
+        print("✅ TwitterMonitor 初始化完成（使用爬虫方式）")
 
     async def get_latest_tweets(self, username: str, since_minutes: int = 5) -> List[Dict]:
+        now = datetime.utcnow()
         try:
-            tweets = self.api.user_timeline(screen_name=username, count=5, tweet_mode='extended')
-            now = datetime.utcnow()
-            new_tweets = []
-
-            for tweet in tweets:
-                tweet_time = tweet.created_at
-                if (now - tweet_time) < timedelta(minutes=since_minutes):
-                    new_tweets.append({
-                        "text": tweet.full_text,
-                        "created_at": tweet_time,
-                        "likes": tweet.favorite_count,
-                        "retweets": tweet.retweet_count,
-                        "url": f"https://twitter.com/{username}/status/{tweet.id}"
+            cmd = [
+                "snscrape", 
+                "--jsonl", 
+                "--max-results", "5",
+                f"twitter-user:{username}"
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            tweets = []
+            for line in result.stdout.strip().split("\n"):
+                data = json.loads(line)
+                created_at = datetime.fromisoformat(data["date"].replace("Z", "+00:00"))
+                if (now - created_at) < timedelta(minutes=since_minutes):
+                    tweets.append({
+                        "text": data["content"],
+                        "created_at": created_at,
+                        "likes": data.get("likeCount", 0),
+                        "retweets": data.get("retweetCount", 0),
+                        "url": data["url"]
                     })
-
-            return new_tweets
+            return tweets
         except Exception as e:
-            logger.error(f"获取 Twitter 推文失败: {e}")
+            print(f"❌ 爬虫获取推文失败: {e}")
             return []
 
     def monitor_keyword(self, keyword: str, count: int = 5) -> List[Dict]:
