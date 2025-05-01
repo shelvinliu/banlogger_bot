@@ -73,53 +73,6 @@ class TwitterMonitor:
         )
         self.last_checked = {}  # 记录上次检查时间（避免重复推送）
 
-    async def get_latest_tweets(self, username: str, since_minutes: int = 5) -> List[Dict]:
-        """获取某个用户的最新推文（仅返回最近几分钟的）"""
-        try:
-            user = self.client.get_user(username=username)
-            tweets = self.client.get_users_tweets(
-                user.data.id,
-                max_results=5,  # 获取最新 5 条
-                tweet_fields=["created_at", "public_metrics"]
-            )
-            
-            now = datetime.utcnow()
-            new_tweets = []
-            
-            for tweet in tweets.data:
-                tweet_time = tweet.created_at.replace(tzinfo=None)
-                if (now - tweet_time) < timedelta(minutes=since_minutes):
-                    new_tweets.append({
-                        "text": tweet.text,
-                        "created_at": tweet_time,
-                        "likes": tweet.public_metrics["like_count"],
-                        "retweets": tweet.public_metrics["retweet_count"],
-                        "url": f"https://twitter.com/{username}/status/{tweet.id}"
-                    })
-            
-            return new_tweets
-        except Exception as e:
-            logger.error(f"获取 Twitter 推文失败: {e}")
-            return []
-    async def check_twitter_updates(context: ContextTypes.DEFAULT_TYPE):
-        """定时检查 Twitter 更新并推送到 Telegram"""
-        chat_id = -100123456789  # 替换为你的 Telegram 群组 ID
-        accounts = ["MyStonks_Org", "MyStonksCN"]  # 要监控的账号
-        
-        for username in accounts:
-            tweets = await twitter_monitor.get_latest_tweets(username)
-            if not tweets:
-                continue
-            
-            for tweet in tweets:
-                message = (
-                    f"🐦 **@{username} 的新推文**\n\n"
-                    f"{tweet['text']}\n\n"
-                    f"🕒 {tweet['created_at'].strftime('%Y-%m-%d %H:%M')}\n"
-                    f"👍 {tweet['likes']} | 🔁 {tweet['retweets']}\n"
-                    f"🔗 {tweet['url']}"
-                )
-                await context.bot.send_message(chat_id=chat_id, text=message, parse_mode="Markdown")
     def monitor_keyword(self, keyword: str, count: int = 5) -> List[Dict]:
         """监控某个关键词的最新推文"""
         try:
@@ -142,6 +95,53 @@ class TwitterMonitor:
         except Exception as e:
             logger.error(f"监控 Twitter 关键词失败: {e}")
             return []
+async def get_latest_tweets(self, username: str, since_minutes: int = 5) -> List[Dict]:
+    """获取某个用户的最新推文（仅返回最近几分钟的）"""
+    try:
+        user = self.client.get_user(username=username)
+        tweets = self.client.get_users_tweets(
+            user.data.id,
+            max_results=5,  # 获取最新 5 条
+            tweet_fields=["created_at", "public_metrics"]
+        )
+        
+        now = datetime.utcnow()
+        new_tweets = []
+        
+        for tweet in tweets.data:
+            tweet_time = tweet.created_at.replace(tzinfo=None)
+            if (now - tweet_time) < timedelta(minutes=since_minutes):
+                new_tweets.append({
+                    "text": tweet.text,
+                    "created_at": tweet_time,
+                    "likes": tweet.public_metrics["like_count"],
+                    "retweets": tweet.public_metrics["retweet_count"],
+                    "url": f"https://twitter.com/{username}/status/{tweet.id}"
+                })
+        
+        return new_tweets
+    except Exception as e:
+        logger.error(f"获取 Twitter 推文失败: {e}")
+        return []
+async def check_twitter_updates(context: ContextTypes.DEFAULT_TYPE):
+    """定时检查 Twitter 更新并推送到 Telegram"""
+    chat_id = -100123456789  # 替换为你的 Telegram 群组 ID
+    accounts = ["MyStonks_Org", "MyStonksCN"]  # 要监控的账号
+    
+    for username in accounts:
+        tweets = await twitter_monitor.get_latest_tweets(username)
+        if not tweets:
+            continue
+        
+        for tweet in tweets:
+            message = (
+                f"🐦 **@{username} 的新推文**\n\n"
+                f"{tweet['text']}\n\n"
+                f"🕒 {tweet['created_at'].strftime('%Y-%m-%d %H:%M')}\n"
+                f"👍 {tweet['likes']} | 🔁 {tweet['retweets']}\n"
+                f"🔗 {tweet['url']}"
+            )
+            await context.bot.send_message(chat_id=chat_id, text=message, parse_mode="Markdown")
 
 class GoogleSheetsStorage:
     _last_request_time = 0
