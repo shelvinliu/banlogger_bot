@@ -60,31 +60,34 @@ bot_initialized: bool = False
 ban_records: List[Dict[str, Any]] = []
 
 
+# 修改TwitterMonitor类，使用更可靠的API或爬虫
 class TwitterMonitor:
     def __init__(self):
-        print("✅ TwitterMonitor 初始化完成（使用 Python API）")
+        self.headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        }
+        print("✅ TwitterMonitor 初始化完成（使用备用爬虫）")
 
     async def get_latest_tweets(self, username: str, since_minutes: int = 5) -> List[Dict]:
-        now = datetime.utcnow()
-        tweets = []
-
         try:
-            scraper = sntwitter.TwitterUserScraper(username)
-            for i, tweet in enumerate(scraper.get_items()):
-                if i >= 1:
-                    break
-                tweet_time = tweet.date.replace(tzinfo=None)
-                if (now - tweet_time) < timedelta(minutes=since_minutes):
-                    tweets.append({
-                        "text": tweet.content,
-                        "created_at": tweet_time,
-                        "likes": tweet.likeCount,
-                        "retweets": tweet.retweetCount,
-                        "url": f"https://x.com/{username}/status/{tweet.id}"
-                    })
-            return tweets
+            # 使用更可靠的第三方API
+            api_url = f"https://api.vxtwitter.com/{username}/status"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(api_url, headers=self.headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        tweet_time = datetime.strptime(data['date'], "%Y-%m-%dT%H:%M:%S+00:00")
+                        if (datetime.utcnow() - tweet_time) < timedelta(minutes=since_minutes):
+                            return [{
+                                "text": data['text'],
+                                "created_at": tweet_time,
+                                "likes": data['likes'],
+                                "retweets": data['retweets'],
+                                "url": data['tweetURL']
+                            }]
+            return []
         except Exception as e:
-            print(f"❌ 爬虫获取推文失败: {e}")
+            print(f"❌ 获取推文失败: {e}")
             return []
 
     def monitor_keyword(self, keyword: str, count: int = 5) -> List[Dict]:
