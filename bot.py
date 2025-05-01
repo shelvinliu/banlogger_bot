@@ -75,7 +75,7 @@ class TwitterMonitor:
         self.last_checked = {}  # 记录上次检查时间（避免重复推送）
         try:
             # 测试 API 连接
-            test_user = "Twitter"  # 官方账号，确保存在
+            test_user = "shelvinliu"  # 官方账号，确保存在
             self.client.get_user(username=test_user)
             logger.info("✅ Twitter API 连接测试通过")
         except Exception as e:
