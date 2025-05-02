@@ -31,6 +31,8 @@ from telegram.ext import (
     filters
 )
 import twint
+from bs4 import BeautifulSoup
+import urllib.parse
 
 # 配置日志
 logging.basicConfig(
@@ -1763,6 +1765,15 @@ class TwitterScraper:
         self.max_retries = 3
         self.retry_delay = 5
         self.logger = logging.getLogger(__name__)
+        self.session = None
+        self.headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+
+    async def _get_session(self):
+        if self.session is None:
+            self.session = aiohttp.ClientSession(headers=self.headers)
+        return self.session
 
     async def get_latest_tweets(self, username, count=5):
         """获取指定用户的最新推文"""
@@ -1770,31 +1781,36 @@ class TwitterScraper:
             raise ValueError("用户名不能为空")
 
         username = username.lstrip('@')
-        self.logger.info(f"Fetching tweets for @{username} using twint")
+        self.logger.info(f"Fetching tweets for @{username}")
         
         tweets = []
         retry_count = 0
         
         while retry_count < self.max_retries:
             try:
-                # 配置 twint
-                c = twint.Config()
-                c.Username = username
-                c.Limit = count
-                c.Store_object = True
-                c.Hide_output = True
+                session = await self._get_session()
+                url = f"https://syndication.twitter.com/srv/timeline-profile/screen-name/{username}"
                 
-                # 运行爬虫
-                twint.run.Search(c)
-                
-                # 获取结果
-                for tweet in twint.output.tweets_list:
-                    tweets.append({
-                        'text': tweet.tweet,
-                        'created_at': tweet.datetime,
-                        'url': f"https://twitter.com/{username}/status/{tweet.id}",
-                        'author': username
-                    })
+                async with session.get(url) as response:
+                    if response.status == 404:
+                        raise ValueError(f"用户 @{username} 不存在")
+                    elif response.status != 200:
+                        raise Exception(f"获取推文失败: HTTP {response.status}")
+                    
+                    html = await response.text()
+                    soup = BeautifulSoup(html, 'html.parser')
+                    
+                    for tweet in soup.find_all('div', class_='timeline-Tweet')[:count]:
+                        text = tweet.find('p', class_='timeline-Tweet-text')
+                        if text:
+                            tweet_id = tweet['data-tweet-id']
+                            created_at = tweet.find('time')['datetime']
+                            tweets.append({
+                                'text': text.get_text(),
+                                'created_at': datetime.strptime(created_at, "%Y-%m-%dT%H:%M:%S.%fZ"),
+                                'url': f"https://twitter.com/{username}/status/{tweet_id}",
+                                'author': username
+                            })
                 
                 if tweets:
                     return tweets
@@ -1802,21 +1818,18 @@ class TwitterScraper:
                     self.logger.warning(f"No tweets found for @{username}")
                     return []
                     
-            except Exception as e:
+            except aiohttp.ClientError as e:
                 retry_count += 1
                 error_msg = str(e)
                 self.logger.error(f"Error fetching tweets for @{username} (attempt {retry_count}/{self.max_retries}): {error_msg}")
                 
-                if "User not found" in error_msg:
-                    raise ValueError(f"用户 @{username} 不存在")
-                elif "Rate limit exceeded" in error_msg:
-                    self.logger.warning("Rate limit exceeded, waiting before retry...")
+                if retry_count < self.max_retries:
                     await asyncio.sleep(self.retry_delay * retry_count)
                 else:
-                    if retry_count < self.max_retries:
-                        await asyncio.sleep(self.retry_delay)
-                    else:
-                        raise Exception(f"获取推文失败: {error_msg}")
+                    raise Exception(f"获取推文失败: {error_msg}")
+            
+            except Exception as e:
+                raise e
         
         return []
 
@@ -1832,24 +1845,28 @@ class TwitterScraper:
         
         while retry_count < self.max_retries:
             try:
-                # 配置 twint
-                c = twint.Config()
-                c.Search = keyword
-                c.Limit = count
-                c.Store_object = True
-                c.Hide_output = True
+                session = await self._get_session()
+                url = f"https://syndication.twitter.com/srv/timeline-search/search?q={urllib.parse.quote(keyword)}"
                 
-                # 运行爬虫
-                twint.run.Search(c)
-                
-                # 获取结果
-                for tweet in twint.output.tweets_list:
-                    tweets.append({
-                        'text': tweet.tweet,
-                        'created_at': tweet.datetime,
-                        'url': f"https://twitter.com/{tweet.username}/status/{tweet.id}",
-                        'author': tweet.username
-                    })
+                async with session.get(url) as response:
+                    if response.status != 200:
+                        raise Exception(f"搜索推文失败: HTTP {response.status}")
+                    
+                    html = await response.text()
+                    soup = BeautifulSoup(html, 'html.parser')
+                    
+                    for tweet in soup.find_all('div', class_='timeline-Tweet')[:count]:
+                        text = tweet.find('p', class_='timeline-Tweet-text')
+                        if text:
+                            tweet_id = tweet['data-tweet-id']
+                            created_at = tweet.find('time')['datetime']
+                            author = tweet.find('span', class_='TweetAuthor-screenName').get_text().lstrip('@')
+                            tweets.append({
+                                'text': text.get_text(),
+                                'created_at': datetime.strptime(created_at, "%Y-%m-%dT%H:%M:%S.%fZ"),
+                                'url': f"https://twitter.com/{author}/status/{tweet_id}",
+                                'author': author
+                            })
                 
                 if tweets:
                     return tweets
@@ -1857,21 +1874,26 @@ class TwitterScraper:
                     self.logger.warning(f"No tweets found for keyword: {keyword}")
                     return []
                     
-            except Exception as e:
+            except aiohttp.ClientError as e:
                 retry_count += 1
                 error_msg = str(e)
                 self.logger.error(f"Error searching tweets for '{keyword}' (attempt {retry_count}/{self.max_retries}): {error_msg}")
                 
-                if "Rate limit exceeded" in error_msg:
-                    self.logger.warning("Rate limit exceeded, waiting before retry...")
+                if retry_count < self.max_retries:
                     await asyncio.sleep(self.retry_delay * retry_count)
                 else:
-                    if retry_count < self.max_retries:
-                        await asyncio.sleep(self.retry_delay)
-                    else:
-                        raise Exception(f"搜索推文失败: {error_msg}")
+                    raise Exception(f"搜索推文失败: {error_msg}")
+            
+            except Exception as e:
+                raise e
         
         return []
+
+    async def close(self):
+        """关闭会话"""
+        if self.session:
+            await self.session.close()
+            self.session = None
 
 # 替换原来的 NitterMonitor 实例
 nitter_monitor = TwitterScraper()
