@@ -83,8 +83,13 @@ async def twitter_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         try:
             # 测试Twitter API连接
-            await twitter_monitor.client.get_me()
-            status = "✅ Twitter API连接正常"
+            async with aiohttp.ClientSession() as session:
+                api_url = "https://api.vxtwitter.com/MyStonks_Org/status"
+                async with session.get(api_url, headers=twitter_monitor.headers) as response:
+                    if response.status == 200:
+                        status = "✅ Twitter API连接正常"
+                    else:
+                        status = f"❌ Twitter API连接异常: HTTP {response.status}"
         except Exception as e:
             status = f"❌ Twitter API连接异常: {str(e)}"
 
@@ -120,7 +125,7 @@ async def twitter_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         keyword = " ".join(context.args[1:])
         try:
-            tweets = twitter_monitor.monitor_keyword(keyword)
+            tweets = await twitter_monitor.monitor_keyword(keyword)
             if tweets:
                 message = f"✅ 找到包含'{keyword}'的推文:\n\n"
                 for tweet in tweets:
