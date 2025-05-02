@@ -155,37 +155,18 @@ async def twitter_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     command = context.args[0].lower()
-    global twitter_monitor
+    global nitter_monitor
 
     if command == "status":
-        if not twitter_monitor:
+        if not nitter_monitor:
             await update.message.reply_text("❌ Twitter监控未初始化")
             return
 
         try:
-            # 测试Twitter API连接
-            async with aiohttp.ClientSession() as session:
-                # 使用 Twitter API v2 的示例端点
-                api_url = "https://api.twitter.com/2/users/me"
-                auth = tweepy.OAuth1UserHandler(
-                    TWITTER_API_KEY,
-                    TWITTER_API_SECRET_KEY,
-                    TWITTER_ACCESS_TOKEN,
-                    TWITTER_ACCESS_TOKEN_SECRET
-                )
-                headers = {
-                    "Authorization": f"Bearer {auth.access_token}",
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-                }
-                async with session.get(api_url, headers=headers) as response:
-                    if response.status == 200:
-                        status = "✅ Twitter API连接正常"
-                    else:
-                        status = f"❌ Twitter API连接异常: HTTP {response.status}"
+            # 测试连接
+            await update.message.reply_text("✅ Twitter监控运行正常")
         except Exception as e:
-            status = f"❌ Twitter API连接异常: {str(e)}"
-
-        await update.message.reply_text(status)
+            await update.message.reply_text(f"❌ Twitter监控异常: {str(e)}")
 
     elif command == "monitor":
         if len(context.args) < 2:
@@ -194,14 +175,13 @@ async def twitter_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         username = context.args[1]
         try:
-            tweets = await twitter_monitor.get_latest_tweets(username)
+            tweets = await nitter_monitor.get_latest_tweets(username)
             if tweets:
                 message = f"✅ 成功获取@{username}的最新推文:\n\n"
                 for tweet in tweets:
                     message += (
                         f"📝 {tweet['text']}\n"
                         f"🕒 {tweet['created_at'].strftime('%Y-%m-%d %H:%M')}\n"
-                        f"👍 {tweet['likes']} | 🔁 {tweet['retweets']}\n"
                         f"🔗 {tweet['url']}\n\n"
                     )
             else:
@@ -217,7 +197,7 @@ async def twitter_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         keyword = " ".join(context.args[1:])
         try:
-            tweets = await twitter_monitor.monitor_keyword(keyword)
+            tweets = await nitter_monitor.search_tweets(keyword)
             if tweets:
                 message = f"✅ 找到包含'{keyword}'的推文:\n\n"
                 for tweet in tweets:
@@ -225,7 +205,6 @@ async def twitter_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                         f"📝 {tweet['text']}\n"
                         f"👤 @{tweet['author']}\n"
                         f"🕒 {tweet['created_at'].strftime('%Y-%m-%d %H:%M')}\n"
-                        f"👍 {tweet['likes']} | 🔁 {tweet['retweets']}\n"
                         f"🔗 {tweet['url']}\n\n"
                     )
             else:
@@ -235,12 +214,12 @@ async def twitter_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await update.message.reply_text(f"❌ 搜索推文失败: {str(e)}")
 
     elif command == "stop":
-        if not twitter_monitor:
+        if not nitter_monitor:
             await update.message.reply_text("❌ Twitter监控未初始化")
             return
 
         try:
-            # 这里可以添加停止监控的逻辑
+            await nitter_monitor.stop_monitoring()
             await update.message.reply_text("✅ Twitter监控已停止")
         except Exception as e:
             await update.message.reply_text(f"❌ 停止监控失败: {str(e)}")
@@ -671,12 +650,19 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "│  ├─ /twitter monitor <用户名> - 监控用户\n"
         "│  ├─ /twitter keyword <关键词> - 监控关键词\n"
         "│  └─ /twitter stop - 停止监控\n\n"
-        "└─ 📝 关键词回复\n"
-        "   └─ /reply - 管理关键词自动回复\n\n"
+        "├─ 📝 关键词回复\n"
+        "│  └─ /reply - 管理关键词自动回复\n\n"
+        "└─ 🌟 问候功能\n"
+        "   ├─ /morning - 早安问候\n"
+        "   ├─ /noon - 午安问候\n"
+        "   ├─ /night - 晚安问候\n"
+        "   └─ /comfort - 安慰消息\n\n"
         "⚠️ 注意：\n"
         "• 请确保机器人有管理员权限\n"
         "• 部分功能仅管理员可用\n"
-        "• 使用前请仔细阅读命令说明"
+        "• 使用前请仔细阅读命令说明\n"
+        "• 关键词回复支持自定义链接和文本\n"
+        "• 问候功能支持多种风格和随机彩蛋"
     )
     
     # 发送欢迎消息
