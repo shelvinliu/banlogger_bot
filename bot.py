@@ -1679,107 +1679,230 @@ async def comfort_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 class NitterMonitor:
     def __init__(self):
         self.headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'application/rss+xml, application/xml, text/xml, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
         }
         self.base_urls = [
             "https://nitter.net",
-            "https://nitter.1d4.us",
             "https://nitter.kavin.rocks",
-            "https://nitter.unixfox.eu"
-        ]  # 多个 Nitter 实例作为备选
+            "https://nitter.unixfox.eu",
+            "https://nitter.cz",
+            "https://nitter.moomoo.me",
+            "https://nitter.fdn.fr",
+            "https://nitter.weiler.rocks",
+            "https://nitter.snopyta.org"
+        ]  # 更新后的 Nitter 实例列表
         self.current_url_index = 0
         self.max_retries = 3
         self.retry_delay = 5  # 重试延迟秒数
+        self.last_successful_url = None
+        self.failed_urls = set()  # 记录失败的 URL
 
     def _get_current_url(self):
         return self.base_urls[self.current_url_index]
 
     def _switch_url(self):
-        self.current_url_index = (self.current_url_index + 1) % len(self.base_urls)
-        logger.info(f"切换到 Nitter 实例: {self._get_current_url()}")
+        # 记录当前失败的 URL
+        self.failed_urls.add(self._get_current_url())
+        
+        # 找到下一个可用的 URL
+        while True:
+            self.current_url_index = (self.current_url_index + 1) % len(self.base_urls)
+            if self._get_current_url() not in self.failed_urls:
+                break
+            
+            # 如果所有 URL 都失败了，重置失败记录
+            if len(self.failed_urls) >= len(self.base_urls):
+                self.failed_urls.clear()
+                logger.warning("All Nitter instances failed, resetting failed URLs list")
+                break
+        
+        logger.info(f"Switching to Nitter instance: {self._get_current_url()}")
 
     async def _make_request(self, url, retry_count=0):
         try:
             async with aiohttp.ClientSession(headers=self.headers) as session:
                 async with session.get(url, timeout=30) as response:
                     if response.status == 200:
+                        self.last_successful_url = self._get_current_url()
                         return await response.text()
                     elif response.status == 429:  # Too Many Requests
+                        logger.warning(f"Rate limit exceeded on {self._get_current_url()}")
                         if retry_count < self.max_retries:
                             await asyncio.sleep(self.retry_delay * (retry_count + 1))
                             return await self._make_request(url, retry_count + 1)
                         raise Exception("Rate limit exceeded")
                     else:
-                        self._switch_url()  # 切换实例
+                        logger.warning(f"HTTP error {response.status} on {self._get_current_url()}")
+                        self._switch_url()
                         raise Exception(f"HTTP error: {response.status}")
         except asyncio.TimeoutError:
+            logger.warning(f"Timeout on {self._get_current_url()}")
             if retry_count < self.max_retries:
                 await asyncio.sleep(self.retry_delay * (retry_count + 1))
                 return await self._make_request(url, retry_count + 1)
-            self._switch_url()  # 切换实例
+            self._switch_url()
             raise Exception("Request timeout")
         except Exception as e:
+            logger.warning(f"Request error on {self._get_current_url()}: {str(e)}")
             if retry_count < self.max_retries:
                 await asyncio.sleep(self.retry_delay * (retry_count + 1))
                 return await self._make_request(url, retry_count + 1)
-            self._switch_url()  # 切换实例
+            self._switch_url()
             raise e
 
     async def get_latest_tweets(self, username, count=5):
+        if not username:
+            logger.error("Username is required")
+            return []
+
+        username = username.lstrip('@')  # 移除可能的 @ 前缀
+        logger.info(f"Fetching tweets for @{username} from {self._get_current_url()}")
+        
         try:
             url = f"{self._get_current_url()}/{username}/rss"
             content = await self._make_request(url)
-            return self._parse_rss(content, count)
+            tweets = self._parse_rss(content, count)
+            
+            if not tweets:
+                logger.warning(f"No tweets found for @{username} on {self._get_current_url()}")
+                # 如果当前实例没有找到推文，尝试切换到其他实例
+                if self.last_successful_url and self.last_successful_url != self._get_current_url():
+                    logger.info(f"Trying last successful instance: {self.last_successful_url}")
+                    self.current_url_index = self.base_urls.index(self.last_successful_url)
+                    url = f"{self._get_current_url()}/{username}/rss"
+                    content = await self._make_request(url)
+                    tweets = self._parse_rss(content, count)
+            
+            return tweets
         except Exception as e:
-            logger.error(f"获取推文失败: {str(e)}")
-            return []
-
-    async def search_tweets(self, keyword, count=5):
-        try:
-            url = f"{self._get_current_url()}/search?f=tweets&q={keyword}"
-            content = await self._make_request(url)
-            return self._parse_search_results(content, count)
-        except Exception as e:
-            logger.error(f"搜索推文失败: {str(e)}")
+            logger.error(f"Failed to get tweets for @{username}: {str(e)}")
             return []
 
     def _parse_rss(self, content: str, count: int) -> List[Dict]:
         """解析 RSS 内容"""
         tweets = []
         try:
+            # 检查内容是否为空
+            if not content:
+                logger.warning("Empty RSS content received")
+                return tweets
+
+            # 检查是否是有效的 XML
+            if not content.strip().startswith('<?xml'):
+                logger.warning("Invalid RSS content received")
+                return tweets
+
             # 简单的 RSS 解析
             items = re.findall(r'<item>(.*?)</item>', content, re.DOTALL)
+            if not items:
+                logger.warning("No items found in RSS feed")
+                return tweets
+
             for item in items[:count]:
                 title = re.search(r'<title>(.*?)</title>', item)
                 link = re.search(r'<link>(.*?)</link>', item)
                 pub_date = re.search(r'<pubDate>(.*?)</pubDate>', item)
                 
                 if title and link and pub_date:
-                    tweets.append({
-                        "text": title.group(1),
-                        "url": link.group(1),
-                        "created_at": datetime.strptime(pub_date.group(1), "%a, %d %b %Y %H:%M:%S %z")
-                    })
+                    try:
+                        pub_date = datetime.strptime(pub_date.group(1), "%a, %d %b %Y %H:%M:%S %z")
+                        tweets.append({
+                            "text": title.group(1),
+                            "url": link.group(1),
+                            "created_at": pub_date
+                        })
+                    except ValueError as e:
+                        logger.warning(f"Failed to parse date: {str(e)}")
+                        continue
+                else:
+                    logger.warning("Missing required fields in RSS item")
         except Exception as e:
-            logger.error(f"解析 RSS 失败: {e}")
+            logger.error(f"Error parsing RSS: {str(e)}")
         return tweets
+
+    async def search_tweets(self, keyword, count=5):
+        if not keyword:
+            logger.error("Search keyword is required")
+            return []
+
+        logger.info(f"Searching tweets for '{keyword}' from {self._get_current_url()}")
+        
+        try:
+            url = f"{self._get_current_url()}/search?f=tweets&q={keyword}"
+            content = await self._make_request(url)
+            tweets = self._parse_search_results(content, count)
+            
+            if not tweets:
+                logger.warning(f"No tweets found for '{keyword}' on {self._get_current_url()}")
+                # 如果当前实例没有找到推文，尝试切换到其他实例
+                if self.last_successful_url and self.last_successful_url != self._get_current_url():
+                    logger.info(f"Trying last successful instance: {self.last_successful_url}")
+                    self.current_url_index = self.base_urls.index(self.last_successful_url)
+                    url = f"{self._get_current_url()}/search?f=tweets&q={keyword}"
+                    content = await self._make_request(url)
+                    tweets = self._parse_search_results(content, count)
+            
+            return tweets
+        except Exception as e:
+            logger.error(f"Failed to search tweets for '{keyword}': {str(e)}")
+            return []
 
     def _parse_search_results(self, content: str, count: int) -> List[Dict]:
         """解析搜索结果"""
         tweets = []
         try:
+            # 检查内容是否为空
+            if not content:
+                logger.warning("Empty search content received")
+                return tweets
+
             # 解析搜索结果页面
             tweet_blocks = re.findall(r'<div class="tweet-content media-body">(.*?)</div>', content, re.DOTALL)
+            if not tweet_blocks:
+                logger.warning("No tweet blocks found in search results")
+                return tweets
+
             for block in tweet_blocks[:count]:
-                text = re.sub(r'<[^>]+>', '', block).strip()
-                if text:
+                try:
+                    # 提取推文文本
+                    text = re.sub(r'<[^>]+>', '', block).strip()
+                    if not text:
+                        continue
+
+                    # 提取推文链接
+                    link_match = re.search(r'href="(/[^/]+/status/\d+)"', block)
+                    url = f"{self._get_current_url()}{link_match.group(1)}" if link_match else ""
+
+                    # 提取作者
+                    author_match = re.search(r'href="/([^/]+)"', block)
+                    author = author_match.group(1) if author_match else ""
+
+                    # 提取时间
+                    time_match = re.search(r'<span class="tweet-date">.*?<a.*?>(.*?)</a>', block)
+                    if time_match:
+                        try:
+                            created_at = datetime.strptime(time_match.group(1), "%b %d, %Y")
+                        except ValueError:
+                            created_at = datetime.now()
+                    else:
+                        created_at = datetime.now()
+
                     tweets.append({
                         "text": text,
-                        "url": "",  # 需要从页面中提取
-                        "created_at": datetime.now()  # 需要从页面中提取
+                        "url": url,
+                        "author": author,
+                        "created_at": created_at
                     })
+                except Exception as e:
+                    logger.warning(f"Failed to parse tweet block: {str(e)}")
+                    continue
+
         except Exception as e:
-            logger.error(f"解析搜索结果失败: {e}")
+            logger.error(f"Error parsing search results: {str(e)}")
         return tweets
 
 async def nitter_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
