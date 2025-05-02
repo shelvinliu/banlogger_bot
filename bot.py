@@ -1475,6 +1475,46 @@ async def export_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         asyncio.create_task(delete_message_later(error_msg))
         logger.error(f"导出封禁记录失败: {e}")
 
+async def goodnight_greeting_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理晚安问候"""
+    user = update.effective_user
+    GOODNIGHT_GREETINGS = [
+        # 温馨系列
+        f"🌙 {user.first_name}晚安！愿你有个甜美的梦~",
+        f"✨ {user.first_name}晚安！星星会守护你的梦~",
+        f"🌛 {user.first_name}晚安！月亮会照亮你的梦~",
+        f"🛏️ {user.first_name}晚安！被子已经暖好啦~",
+        
+        # 幽默系列
+        f"😴 {user.first_name}晚安！再不睡就要变成熊猫啦~",
+        f"🌙 {user.first_name}晚安！梦里记得给我留个位置~",
+        f"🛌 {user.first_name}晚安！床说它想你了~",
+        f"💤 {user.first_name}晚安！明天见，小懒虫~",
+        
+        # 励志系列
+        f"🌠 {user.first_name}晚安！今天的你很棒，明天继续加油~",
+        f"🌟 {user.first_name}晚安！休息是为了更好的明天~",
+        f"🌙 {user.first_name}晚安！养精蓄锐，明天再战~",
+        
+        # 特别彩蛋
+        f"🌙 {user.first_name}晚安！今晚的梦境主题是：{random.choice(['冒险','美食','旅行','童话'])}~",
+        f"✨ {user.first_name}晚安！你是今天第{random.randint(1,100)}个说晚安的小可爱~"
+    ]
+    
+    # 随机选择一条问候语
+    reply = random.choice(GOODNIGHT_GREETINGS)
+    
+    # 10%概率附加彩蛋
+    if random.random() < 0.1:
+        emojis = ["✨", "🌟", "🌙", "💫", "🌠"]
+        reply += f"\n\n{random.choice(emojis)} 彩蛋：你是今天第{random.randint(1,100)}个说晚安的小可爱~"
+    
+    sent_message = await update.message.reply_text(reply)
+    logger.info(f"🌙 向 {user.full_name} 发送了晚安问候")
+    
+    # 1分钟后自动删除
+    asyncio.create_task(delete_message_later(sent_message, delay=60))
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global bot_app, bot_initialized, ban_records, twitter_monitor
