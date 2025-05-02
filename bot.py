@@ -1227,85 +1227,102 @@ async def keyword_reply_handler(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     if not context.args:
-        help_text = (
-            "📝 关键词回复管理命令:\n\n"
-            "/reply add - 开始添加关键词回复\n"
-            "/reply edit <关键词> - 开始修改关键词回复\n"
-            "/reply del <关键词> - 删除关键词回复\n"
-            "/reply list - 查看所有关键词回复\n\n"
-            "添加/修改过程分为三步：\n"
-            "1. 输入关键词\n"
-            "2. 输入回复内容\n"
-            "3. 输入链接和链接文本（可选）\n\n"
-            "示例:\n"
-            "/reply add\n"
-            "/reply edit 帮助"
+        # 创建主菜单按钮
+        keyboard = [
+            [
+                InlineKeyboardButton("➕ 添加回复", callback_data="reply_add"),
+                InlineKeyboardButton("✏️ 修改回复", callback_data="reply_edit")
+            ],
+            [
+                InlineKeyboardButton("🗑️ 删除回复", callback_data="reply_delete"),
+                InlineKeyboardButton("📋 查看列表", callback_data="reply_list")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            "📝 关键词回复管理\n\n"
+            "请选择要执行的操作：",
+            reply_markup=reply_markup
         )
-        await update.message.reply_text(help_text)
         return
 
-    action = context.args[0].lower()
+async def reply_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理关键词回复的回调"""
+    query = update.callback_query
+    await query.answer()
     
-    if action == "add":
+    if not await is_admin(update, context):
+        await query.message.reply_text("❌ 只有管理员可以使用此命令")
+        return
+        
+    action = query.data
+    
+    if action == "reply_add":
         # 开始添加流程
         context.user_data["reply_flow"] = {
             "step": 1,
             "action": "add"
         }
-        await update.message.reply_text(
+        await query.message.edit_text(
             "📝 添加关键词回复\n\n"
             "第1步：请输入关键词\n"
             "输入 /cancel 取消操作"
         )
         
-    elif action == "edit":
-        if len(context.args) < 2:
-            await update.message.reply_text("❌ 请提供要修改的关键词")
-            return
-            
-        keyword = context.args[1]
+    elif action == "reply_edit":
+        # 获取所有关键词
         replies = await GoogleSheetsStorage.get_keyword_replies()
-        existing_reply = next((r for r in replies if r["关键词"].lower() == keyword.lower()), None)
-        
-        if not existing_reply:
-            await update.message.reply_text(f"❌ 未找到关键词: {keyword}")
+        if not replies:
+            await query.message.edit_text("暂无关键词回复可修改")
             return
             
-        # 开始修改流程
-        context.user_data["reply_flow"] = {
-            "step": 2,  # 直接进入第二步
-            "action": "edit",
-            "keyword": keyword,
-            "existing_reply": existing_reply
-        }
+        # 创建关键词选择按钮
+        keyboard = []
+        for reply in replies:
+            keyboard.append([InlineKeyboardButton(
+                f"🔑 {reply['关键词']}",
+                callback_data=f"edit_keyword_{reply['关键词']}"
+            )])
+            
+        keyboard.append([InlineKeyboardButton("🔙 返回", callback_data="reply_menu")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await update.message.reply_text(
-            f"📝 修改关键词回复: {keyword}\n\n"
-            f"当前回复内容: {existing_reply['回复内容']}\n"
-            f"当前链接: {existing_reply.get('链接', '无')}\n"
-            f"当前链接文本: {existing_reply.get('链接文本', '无')}\n\n"
-            "请输入新的回复内容\n"
-            "输入 /cancel 取消操作"
+        await query.message.edit_text(
+            "📝 修改关键词回复\n\n"
+            "请选择要修改的关键词：",
+            reply_markup=reply_markup
         )
-            
-    elif action == "del":
-        if len(context.args) < 2:
-            await update.message.reply_text("❌ 请提供要删除的关键词")
+        
+    elif action == "reply_delete":
+        # 获取所有关键词
+        replies = await GoogleSheetsStorage.get_keyword_replies()
+        if not replies:
+            await query.message.edit_text("暂无关键词回复可删除")
             return
             
-        keyword = context.args[1]
-        success = await GoogleSheetsStorage.delete_keyword_reply(keyword)
-        
-        if success:
-            await update.message.reply_text(f"✅ 已删除关键词回复: {keyword}")
-        else:
-            await update.message.reply_text(f"❌ 未找到关键词: {keyword}")
+        # 创建关键词选择按钮
+        keyboard = []
+        for reply in replies:
+            keyboard.append([InlineKeyboardButton(
+                f"🗑️ {reply['关键词']}",
+                callback_data=f"delete_keyword_{reply['关键词']}"
+            )])
             
-    elif action == "list":
+        keyboard.append([InlineKeyboardButton("🔙 返回", callback_data="reply_menu")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.message.edit_text(
+            "🗑️ 删除关键词回复\n\n"
+            "请选择要删除的关键词：",
+            reply_markup=reply_markup
+        )
+        
+    elif action == "reply_list":
         replies = await GoogleSheetsStorage.get_keyword_replies()
         
         if not replies:
-            await update.message.reply_text("暂无关键词回复配置")
+            await query.message.edit_text("暂无关键词回复配置")
             return
             
         message = "📋 关键词回复列表:\n\n"
@@ -1318,17 +1335,103 @@ async def keyword_reply_handler(update: Update, context: ContextTypes.DEFAULT_TY
                 message += f"🔗 链接: {reply['链接']} ({reply.get('链接文本', '点击这里')})\n"
             message += "━━━━━━━━━━━━━━\n"
             
-        await update.message.reply_text(message)
+        keyboard = [[InlineKeyboardButton("🔙 返回", callback_data="reply_menu")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
         
-    elif action == "cancel":
-        if "reply_flow" in context.user_data:
-            del context.user_data["reply_flow"]
-            await update.message.reply_text("✅ 已取消操作")
+        await query.message.edit_text(message, reply_markup=reply_markup)
+        
+    elif action == "reply_menu":
+        # 返回主菜单
+        keyboard = [
+            [
+                InlineKeyboardButton("➕ 添加回复", callback_data="reply_add"),
+                InlineKeyboardButton("✏️ 修改回复", callback_data="reply_edit")
+            ],
+            [
+                InlineKeyboardButton("🗑️ 删除回复", callback_data="reply_delete"),
+                InlineKeyboardButton("📋 查看列表", callback_data="reply_list")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.message.edit_text(
+            "📝 关键词回复管理\n\n"
+            "请选择要执行的操作：",
+            reply_markup=reply_markup
+        )
+        
+    elif action.startswith("edit_keyword_"):
+        keyword = action.replace("edit_keyword_", "")
+        replies = await GoogleSheetsStorage.get_keyword_replies()
+        existing_reply = next((r for r in replies if r["关键词"] == keyword), None)
+        
+        if not existing_reply:
+            await query.message.edit_text(f"❌ 未找到关键词: {keyword}")
+            return
+            
+        # 开始修改流程
+        context.user_data["reply_flow"] = {
+            "step": 2,
+            "action": "edit",
+            "keyword": keyword,
+            "existing_reply": existing_reply
+        }
+        
+        await query.message.edit_text(
+            f"📝 修改关键词回复: {keyword}\n\n"
+            f"当前回复内容: {existing_reply['回复内容']}\n"
+            f"当前链接: {existing_reply.get('链接', '无')}\n"
+            f"当前链接文本: {existing_reply.get('链接文本', '无')}\n\n"
+            "请输入新的回复内容\n"
+            "输入 /cancel 取消操作"
+        )
+        
+    elif action.startswith("delete_keyword_"):
+        keyword = action.replace("delete_keyword_", "")
+        
+        # 创建确认按钮
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ 确认删除", callback_data=f"confirm_delete_{keyword}"),
+                InlineKeyboardButton("❌ 取消", callback_data="reply_delete")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.message.edit_text(
+            f"⚠️ 确认删除关键词回复: {keyword}\n\n"
+            "此操作不可恢复！",
+            reply_markup=reply_markup
+        )
+        
+    elif action.startswith("confirm_delete_"):
+        keyword = action.replace("confirm_delete_", "")
+        success = await GoogleSheetsStorage.delete_keyword_reply(keyword)
+        
+        if success:
+            await query.message.edit_text(f"✅ 已删除关键词回复: {keyword}")
         else:
-            await update.message.reply_text("❌ 没有正在进行的操作")
+            await query.message.edit_text(f"❌ 删除失败: {keyword}")
+            
+        # 返回主菜单
+        await asyncio.sleep(2)
+        keyboard = [
+            [
+                InlineKeyboardButton("➕ 添加回复", callback_data="reply_add"),
+                InlineKeyboardButton("✏️ 修改回复", callback_data="reply_edit")
+            ],
+            [
+                InlineKeyboardButton("🗑️ 删除回复", callback_data="reply_delete"),
+                InlineKeyboardButton("📋 查看列表", callback_data="reply_list")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
         
-    else:
-        await update.message.reply_text("❌ 未知操作，请使用 add/edit/del/list")
+        await query.message.edit_text(
+            "📝 关键词回复管理\n\n"
+            "请选择要执行的操作：",
+            reply_markup=reply_markup
+        )
 
 async def handle_reply_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理关键词回复的流程"""
@@ -1746,6 +1849,7 @@ async def lifespan(app: FastAPI):
         await bot_app.shutdown()
     # 在 lifespan 函数中添加新的处理器
     bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_reply_flow))
+    bot_app.add_handler(CallbackQueryHandler(reply_callback_handler))
 router = APIRouter()
 @router.get("/health")
 @router.post("/health")
