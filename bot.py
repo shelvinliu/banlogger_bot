@@ -70,14 +70,23 @@ class TwitterMonitor:
         # Initialize Twitter API client if credentials are available
         if all([TWITTER_API_KEY, TWITTER_API_SECRET_KEY, TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_TOKEN_SECRET]):
             try:
-                # Initialize the client with OAuth 1.0a authentication
+                # First get a bearer token using OAuth 2.0
+                auth = tweepy.OAuth2AppHandler(
+                    TWITTER_API_KEY,
+                    TWITTER_API_SECRET_KEY
+                )
+                bearer_token = auth.get_access_token()
+                
+                # Initialize the client with the bearer token
                 self.client = tweepy.Client(
+                    bearer_token=bearer_token,
                     consumer_key=TWITTER_API_KEY,
                     consumer_secret=TWITTER_API_SECRET_KEY,
                     access_token=TWITTER_ACCESS_TOKEN,
                     access_token_secret=TWITTER_ACCESS_TOKEN_SECRET,
                     wait_on_rate_limit=True
                 )
+                
                 # Test the connection
                 self.client.get_me()
                 print("✅ Twitter API 客户端初始化完成")
@@ -102,7 +111,8 @@ class TwitterMonitor:
                     tweets = self.client.get_users_tweets(
                         user.data.id,
                         max_results=5,
-                        tweet_fields=['created_at', 'public_metrics', 'author_id']
+                        tweet_fields=['created_at', 'public_metrics', 'author_id'],
+                        user_fields=['username']
                     )
                     
                     if not tweets.data:
@@ -147,7 +157,8 @@ class TwitterMonitor:
             tweets = self.client.search_recent_tweets(
                 query=keyword,
                 max_results=count,
-                tweet_fields=["created_at", "public_metrics", "author_id"]
+                tweet_fields=["created_at", "public_metrics", "author_id"],
+                user_fields=['username']
             )
             
             if not tweets.data:
