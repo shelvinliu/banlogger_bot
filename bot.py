@@ -67,11 +67,55 @@ class TwitterMonitor:
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         }
-        print("✅ TwitterMonitor 初始化完成（使用备用爬虫）")
+        # Initialize Twitter API client if credentials are available
+        if all([TWITTER_API_KEY, TWITTER_API_SECRET_KEY, TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_TOKEN_SECRET]):
+            try:
+                auth = tweepy.OAuthHandler(TWITTER_API_KEY, TWITTER_API_SECRET_KEY)
+                auth.set_access_token(TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_TOKEN_SECRET)
+                self.client = tweepy.Client(
+                    bearer_token=TWITTER_ACCESS_TOKEN,
+                    consumer_key=TWITTER_API_KEY,
+                    consumer_secret=TWITTER_API_SECRET_KEY,
+                    access_token=TWITTER_ACCESS_TOKEN,
+                    access_token_secret=TWITTER_ACCESS_TOKEN_SECRET
+                )
+                print("✅ Twitter API 客户端初始化完成")
+            except Exception as e:
+                print(f"❌ Twitter API 客户端初始化失败: {e}")
+                self.client = None
+        else:
+            self.client = None
+            print("⚠️ Twitter API 凭据未配置，将使用备用API")
 
     async def get_latest_tweets(self, username: str, since_minutes: int = 5) -> List[Dict]:
         try:
-            # 使用更可靠的第三方API
+            # First try using official API if available
+            if self.client:
+                try:
+                    user = self.client.get_user(username=username)
+                    if not user.data:
+                        raise Exception("User not found")
+                    
+                    tweets = self.client.get_users_tweets(
+                        user.data.id,
+                        max_results=5,
+                        tweet_fields=['created_at', 'public_metrics']
+                    )
+                    
+                    if not tweets.data:
+                        return []
+                    
+                    return [{
+                        "text": tweet.text,
+                        "created_at": tweet.created_at,
+                        "likes": tweet.public_metrics['like_count'],
+                        "retweets": tweet.public_metrics['retweet_count'],
+                        "url": f"https://twitter.com/{username}/status/{tweet.id}"
+                    } for tweet in tweets.data]
+                except Exception as e:
+                    print(f"Twitter API 调用失败，切换到备用API: {e}")
+            
+            # Fallback to vxtwitter API
             api_url = f"https://api.vxtwitter.com/{username}/status"
             async with aiohttp.ClientSession() as session:
                 async with session.get(api_url, headers=self.headers) as response:
@@ -94,19 +138,26 @@ class TwitterMonitor:
     def monitor_keyword(self, keyword: str, count: int = 5) -> List[Dict]:
         """监控某个关键词的最新推文"""
         try:
+            if not self.client:
+                raise Exception("Twitter API client not initialized")
+                
             tweets = self.client.search_recent_tweets(
                 query=keyword,
                 max_results=count,
                 tweet_fields=["created_at", "public_metrics", "author_id"]
             )
+            
+            if not tweets.data:
+                return []
+                
             return [
                 {
                     "text": tweet.text,
-                    "author": tweet.author_id,  # 可以进一步获取用户名
+                    "author": tweet.author_id,
                     "created_at": tweet.created_at,
                     "likes": tweet.public_metrics["like_count"],
                     "retweets": tweet.public_metrics["retweet_count"],
-                    "url": f"https://x.com/user/status/{tweet.id}"
+                    "url": f"https://twitter.com/user/status/{tweet.id}"
                 }
                 for tweet in tweets.data
             ]
@@ -1517,12 +1568,6 @@ async def lifespan(app: FastAPI):
             twitter_monitor = None
     else:
         logger.warning("⚠️ Twitter 凭据未完整配置，Twitter 功能已禁用")
-        twitter_monitor = None
-    if all([TWITTER_API_KEY, TWITTER_API_SECRET_KEY, TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_TOKEN_SECRET]):
-        twitter_monitor = TwitterMonitor()
-        logger.info("Twitter monitor initialized")
-    else:
-        logger.warning("Twitter credentials not fully configured - Twitter features disabled")
         twitter_monitor = None
 
     if not TOKEN:
