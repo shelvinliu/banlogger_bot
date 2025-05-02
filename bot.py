@@ -1686,14 +1686,14 @@ class NitterMonitor:
             'Pragma': 'no-cache'
         }
         self.base_urls = [
-            "https://nitter.net",
-            "https://nitter.kavin.rocks",
-            "https://nitter.unixfox.eu",
-            "https://nitter.cz",
-            "https://nitter.moomoo.me",
-            "https://nitter.fdn.fr",
-            "https://nitter.weiler.rocks",
-            "https://nitter.snopyta.org"
+            "https://nitter.privacydev.net",  # 主要实例
+            "https://nitter.poast.org",  # 备用实例
+            "https://nitter.privacytools.io",  # 备用实例
+            "https://nitter.woodland.cafe",  # 备用实例
+            "https://nitter.rawbit.ninja",  # 备用实例
+            "https://nitter.ktachibana.party",  # 备用实例
+            "https://nitter.ethibox.fr",  # 备用实例
+            "https://nitter.owacon.moe"  # 备用实例
         ]  # 更新后的 Nitter 实例列表
         self.current_url_index = 0
         self.max_retries = 3
