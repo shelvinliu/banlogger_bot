@@ -1831,6 +1831,8 @@ async def lifespan(app: FastAPI):
 
     # Initialize bot
     bot_app = ApplicationBuilder().token(TOKEN).build()
+    
+    # 添加所有处理器
     bot_app.add_handler(CommandHandler("start", start_handler))
     bot_app.add_handler(CommandHandler("k", kick_handler))
     bot_app.add_handler(CommandHandler("m", mute_handler))
@@ -1846,9 +1848,15 @@ async def lifespan(app: FastAPI):
     bot_app.add_handler(CommandHandler("comfort", comfort_handler))
     bot_app.add_handler(CommandHandler("reply", keyword_reply_handler))
     bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), auto_reply_handler))
+    bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_reply_flow))
+    bot_app.add_handler(CallbackQueryHandler(reply_callback_handler, pattern="^reply:"))
+    
+    # 启动调度器
     scheduler = AsyncIOScheduler()
     scheduler.add_job(check_twitter_updates, "interval", minutes=5, args=[bot_app])
     scheduler.start()
+    
+    # 初始化并启动机器人
     await bot_app.initialize()
     await bot_app.start()
     if WEBHOOK_URL:
@@ -1860,9 +1868,7 @@ async def lifespan(app: FastAPI):
     if bot_app:
         await bot_app.stop()
         await bot_app.shutdown()
-    # 在 lifespan 函数中添加新的处理器
-    bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_reply_flow))
-    bot_app.add_handler(CallbackQueryHandler(reply_callback_handler, pattern="^reply_|^edit_|^delete_|^confirm_"))
+
 router = APIRouter()
 @router.get("/health")
 @router.post("/health")
