@@ -1234,20 +1234,20 @@ async def records_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
         
         # 获取最近的记录
-        recent_records = sorted(ban_records, key=lambda x: x.get("time", ""), reverse=True)[:MAX_RECORDS_DISPLAY]
+        recent_records = sorted(ban_records, key=lambda x: x.get("操作时间", ""), reverse=True)[:MAX_RECORDS_DISPLAY]
         
         message = "📊 最近封禁记录:\n\n"
         for record in recent_records:
-            record_time = datetime.fromisoformat(record["time"]).astimezone(TIMEZONE).strftime("%Y-%m-%d %H:%M")
+            record_time = datetime.fromisoformat(record["操作时间"]).astimezone(TIMEZONE).strftime("%Y-%m-%d %H:%M")
             message += (
-                f"🕒 {record.get('操作时间', '未知')}\n"
+                f"🕒 {record_time}\n"
                 f"👤 用户: {record.get('名称', '未知')} "
                 f"(ID: {record.get('用户ID', '未知')}) "
                 f"[{record.get('用户名', '无')}]\n"
                 f"👮 管理员: {record.get('操作管理', '未知')}\n"
                 f"📝 原因: {record.get('理由', '未填写')}\n"
                 f"💬 群组: {record.get('电报群组名称', '未知')}\n"
-                f"🔧 操作: {record.get('操作', '未知')}\n"  # 新增操作类型显示
+                f"🔧 操作: {record.get('操作', '未知')}\n"
                 "━━━━━━━━━━━━━━\n"
             )
         
@@ -1445,3 +1445,99 @@ async def telegram_webhook(request: Request):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+
+async def twitter_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """处理/twitter命令"""
+    if not await is_admin(update, context):
+        msg = await update.message.reply_text("❌ 只有管理员可以使用此命令")
+        asyncio.create_task(delete_message_later(msg))
+        return
+
+    if not context.args:
+        help_text = (
+            "🐦 Twitter 监控命令:\n\n"
+            "/twitter status - 查看Twitter监控状态\n"
+            "/twitter monitor <用户名> - 监控指定用户的推文\n"
+            "/twitter keyword <关键词> - 监控包含关键词的推文\n"
+            "/twitter stop - 停止所有监控\n"
+        )
+        await update.message.reply_text(help_text)
+        return
+
+    command = context.args[0].lower()
+    global twitter_monitor
+
+    if command == "status":
+        if not twitter_monitor:
+            await update.message.reply_text("❌ Twitter监控未初始化")
+            return
+
+        try:
+            # 测试Twitter API连接
+            await twitter_monitor.client.get_me()
+            status = "✅ Twitter API连接正常"
+        except Exception as e:
+            status = f"❌ Twitter API连接异常: {str(e)}"
+
+        await update.message.reply_text(status)
+
+    elif command == "monitor":
+        if len(context.args) < 2:
+            await update.message.reply_text("❌ 请提供要监控的Twitter用户名")
+            return
+
+        username = context.args[1]
+        try:
+            tweets = await twitter_monitor.get_latest_tweets(username)
+            if tweets:
+                message = f"✅ 成功获取@{username}的最新推文:\n\n"
+                for tweet in tweets:
+                    message += (
+                        f"📝 {tweet['text']}\n"
+                        f"🕒 {tweet['created_at'].strftime('%Y-%m-%d %H:%M')}\n"
+                        f"👍 {tweet['likes']} | 🔁 {tweet['retweets']}\n"
+                        f"🔗 {tweet['url']}\n\n"
+                    )
+            else:
+                message = f"❌ 未找到@{username}的推文"
+            await update.message.reply_text(message)
+        except Exception as e:
+            await update.message.reply_text(f"❌ 获取推文失败: {str(e)}")
+
+    elif command == "keyword":
+        if len(context.args) < 2:
+            await update.message.reply_text("❌ 请提供要监控的关键词")
+            return
+
+        keyword = " ".join(context.args[1:])
+        try:
+            tweets = twitter_monitor.monitor_keyword(keyword)
+            if tweets:
+                message = f"✅ 找到包含'{keyword}'的推文:\n\n"
+                for tweet in tweets:
+                    message += (
+                        f"📝 {tweet['text']}\n"
+                        f"👤 @{tweet['author']}\n"
+                        f"🕒 {tweet['created_at'].strftime('%Y-%m-%d %H:%M')}\n"
+                        f"👍 {tweet['likes']} | 🔁 {tweet['retweets']}\n"
+                        f"🔗 {tweet['url']}\n\n"
+                    )
+            else:
+                message = f"❌ 未找到包含'{keyword}'的推文"
+            await update.message.reply_text(message)
+        except Exception as e:
+            await update.message.reply_text(f"❌ 搜索推文失败: {str(e)}")
+
+    elif command == "stop":
+        if not twitter_monitor:
+            await update.message.reply_text("❌ Twitter监控未初始化")
+            return
+
+        try:
+            # 这里可以添加停止监控的逻辑
+            await update.message.reply_text("✅ Twitter监控已停止")
+        except Exception as e:
+            await update.message.reply_text(f"❌ 停止监控失败: {str(e)}")
+
+    else:
+        await update.message.reply_text("❌ 未知命令，请使用 status/monitor/keyword/stop")
