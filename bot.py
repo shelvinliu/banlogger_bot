@@ -1,7 +1,6 @@
 import os
 import re
 import json
-import tweepy
 import pytz
 import random
 import asyncio
@@ -40,7 +39,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # 全局变量
-twitter_monitor = None
 ADMIN_USER_IDS = [int(id) for id in os.getenv("ADMIN_USER_IDS", "").split(",") if id]
 
 async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -177,205 +175,11 @@ WEBHOOK_URL = f"{os.getenv('RENDER_EXTERNAL_URL', '')}{WEBHOOK_PATH}" if os.gete
 TIMEZONE = pytz.timezone(os.getenv("TIMEZONE", "Asia/Shanghai"))
 MAX_RECORDS_DISPLAY = 10
 EXCEL_FILE = "ban_records.xlsx"
-TWITTER_API_KEY=os.getenv("TWITTER_API_KEY")
-TWITTER_API_SECRET_KEY=os.getenv("TWITTER_API_SECRET_KEY")
-TWITTER_ACCESS_TOKEN=os.getenv("TWITTER_ACCESS_TOKEN")
-TWITTER_ACCESS_TOKEN_SECRET=os.getenv("TWITTER_ACCESS_TOKEN_SECRET")
+
 # 全局变量
 bot_app: Optional[Application] = None
 bot_initialized: bool = False
 ban_records: List[Dict[str, Any]] = []
-
-
-# 修改TwitterMonitor类，使用更可靠的API或爬虫
-class TwitterMonitor:
-    def __init__(self):
-        self.headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-        }
-        
-        # 检查必要的环境变量
-        required_creds = {
-            "api_key": TWITTER_API_KEY,
-            "api_secret": TWITTER_API_SECRET_KEY,
-            "access_token": TWITTER_ACCESS_TOKEN,
-            "access_token_secret": TWITTER_ACCESS_TOKEN_SECRET
-        }
-        
-        missing_creds = [k for k, v in required_creds.items() if not v]
-        if missing_creds:
-            raise ValueError(f"缺少必要的Twitter凭据: {', '.join(missing_creds)}")
-            
-        try:
-            # Initialize Twitter client with rate limiting
-            self.client = tweepy.Client(
-                consumer_key=TWITTER_API_KEY,
-                consumer_secret=TWITTER_API_SECRET_KEY,
-                access_token=TWITTER_ACCESS_TOKEN,
-                access_token_secret=TWITTER_ACCESS_TOKEN_SECRET,
-                wait_on_rate_limit=True
-            )
-            
-            # Rate limiting counters
-            self.api_calls = 0
-            self.last_reset = datetime.now()
-            self.max_calls_per_month = 500  # Free tier limit
-            self.calls_remaining = self.max_calls_per_month
-            
-            logger.info("✅ Twitter API客户端初始化成功")
-        except Exception as e:
-            logger.error(f"❌ Twitter API客户端初始化失败: {e}")
-            raise
-
-    def _check_rate_limit(self):
-        """检查API调用限制"""
-        now = datetime.now()
-        # 每月重置计数器
-        if (now - self.last_reset).days >= 30:
-            self.api_calls = 0
-            self.calls_remaining = self.max_calls_per_month
-            self.last_reset = now
-            
-        if self.api_calls >= self.max_calls_per_month:
-            raise Exception("Twitter API monthly limit reached")
-            
-        self.api_calls += 1
-        self.calls_remaining -= 1
-
-    async def get_latest_tweets(self, username: str, since_minutes: int = 5) -> List[Dict]:
-        """获取用户的最新推文"""
-        try:
-            self._check_rate_limit()
-            
-            # 首先尝试使用Twitter API v2
-            try:
-                user = self.client.get_user(username=username)
-                if not user.data:
-                    raise Exception("User not found")
-                    
-                tweets = self.client.get_users_tweets(
-                    user.data.id,
-                    max_results=5,
-                    tweet_fields=['created_at', 'public_metrics']
-                )
-                
-                if tweets.data:
-                    return [{
-                        "text": tweet.text,
-                        "created_at": tweet.created_at,
-                        "likes": tweet.public_metrics['like_count'],
-                        "retweets": tweet.public_metrics['retweet_count'],
-                        "url": f"https://twitter.com/{username}/status/{tweet.id}"
-                    } for tweet in tweets.data]
-                    
-            except Exception as api_error:
-                logger.warning(f"Twitter API调用失败，使用备用方案: {api_error}")
-                
-            # 如果API调用失败，使用vxtwitter作为备用方案
-            async with aiohttp.ClientSession() as session:
-                api_url = f"https://api.vxtwitter.com/{username}/status"
-                async with session.get(api_url, headers=self.headers) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        tweet_time = datetime.strptime(data['date'], "%Y-%m-%dT%H:%M:%S+00:00")
-                        return [{
-                            "text": data['text'],
-                            "created_at": tweet_time,
-                            "likes": data['likes'],
-                            "retweets": data['retweets'],
-                            "url": data['tweetURL']
-                        }]
-            return []
-        except Exception as e:
-            logger.error(f"获取推文失败: {e}")
-            return []
-
-    async def monitor_keyword(self, keyword: str, count: int = 5) -> List[Dict]:
-        """监控某个关键词的最新推文"""
-        try:
-            self._check_rate_limit()
-            
-            # 首先尝试使用Twitter API v2
-            try:
-                tweets = self.client.search_recent_tweets(
-                    query=keyword,
-                    max_results=count,
-                    tweet_fields=['created_at', 'public_metrics', 'author_id']
-                )
-                
-                if tweets.data:
-                    return [{
-                        "text": tweet.text,
-                        "author": tweet.author_id,  # 注意：这里需要额外调用获取用户名
-                        "created_at": tweet.created_at,
-                        "likes": tweet.public_metrics['like_count'],
-                        "retweets": tweet.public_metrics['retweet_count'],
-                        "url": f"https://twitter.com/twitter/status/{tweet.id}"
-                    } for tweet in tweets.data]
-                    
-            except Exception as api_error:
-                logger.warning(f"Twitter API调用失败，使用备用方案: {api_error}")
-                
-            # 如果API调用失败，使用vxtwitter作为备用方案
-            async with aiohttp.ClientSession() as session:
-                api_url = f"https://api.vxtwitter.com/search?q={keyword}&count={count}"
-                async with session.get(api_url, headers=self.headers) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        tweets = data.get('tweets', [])
-                        return [{
-                            "text": tweet['text'],
-                            "author": tweet['author'],
-                            "created_at": datetime.strptime(tweet['date'], "%Y-%m-%dT%H:%M:%S+00:00"),
-                            "likes": tweet['likes'],
-                            "retweets": tweet['retweets'],
-                            "url": tweet['tweetURL']
-                        } for tweet in tweets]
-            return []
-        except Exception as e:
-            logger.error(f"监控 Twitter 关键词失败: {e}")
-            return []
-
-async def check_twitter_updates(context: ContextTypes.DEFAULT_TYPE):
-    """检查Twitter更新"""
-    global twitter_monitor
-    if not twitter_monitor:
-        logger.warning("Twitter monitor not initialized - skipping update check")
-        return
-    
-    # 从环境变量获取配置
-    chat_id = int(os.getenv("TWITTER_MONITOR_CHAT_ID", "-100123456789"))
-    accounts = os.getenv("TWITTER_MONITOR_ACCOUNTS", "MyStonks_Org,MyStonksCN").split(",")
-    
-    # 检查API调用限制
-    try:
-        twitter_monitor._check_rate_limit()
-    except Exception as e:
-        logger.warning(f"Twitter API limit reached: {e}")
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=f"⚠️ Twitter API 月度限制已到达 ({twitter_monitor.calls_remaining} 次剩余)\n监控将暂停至下个月重置"
-        )
-        return
-    
-    for username in accounts:
-        try:
-            tweets = await twitter_monitor.get_latest_tweets(username)
-            if not tweets:
-                continue
-            
-            for tweet in tweets:
-                message = (
-                    f"🐦 **@{username} 的新推文**\n\n"
-                    f"{tweet['text']}\n\n"
-                    f"🕒 {tweet['created_at'].strftime('%Y-%m-%d %H:%M')}\n"
-                    f"👍 {tweet['likes']} | 🔁 {tweet['retweets']}\n"
-                    f"🔗 {tweet['url']}\n\n"
-                    f"📊 API调用剩余: {twitter_monitor.calls_remaining} 次"
-                )
-                await context.bot.send_message(chat_id=chat_id, text=message, parse_mode="Markdown")
-        except Exception as e:
-            logger.error(f"处理Twitter更新时出错: {e}")
 
 class GoogleSheetsStorage:
     _last_request_time = 0
@@ -747,11 +551,7 @@ async def noon_greeting_handler(update: Update, context: ContextTypes.DEFAULT_TY
     
     sent_message = await update.message.reply_text(reply)
     logger.info(f"🌞 向 {user.full_name} 发送了午安问候")
-    
-    # 根据消息长度动态设置删除时间
-    message_length = len(reply)
-    delete_delay = min(120, max(60, message_length // 10))  # 最少60秒，最多120秒
-    asyncio.create_task(delete_message_later(sent_message, delay=delete_delay))
+    asyncio.create_task(delete_message_later(sent_message, delay=300))  # 改为5分钟
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     
@@ -1260,7 +1060,7 @@ async def morning_greeting_handler(update: Update, context: ContextTypes.DEFAULT
         reply += "\n\n🎁 彩蛋：你是今天第{}个说早安的天使~".format(random.randint(1,100))
     sent_message = await update.message.reply_text(reply)  # Store the sent message
     logger.info(f"🌅 向 {user.full_name} 发送了早安问候")
-    asyncio.create_task(delete_message_later(sent_message, delay=60))
+    asyncio.create_task(delete_message_later(sent_message, delay=300))  # 改为5分钟
 
 async def unmute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """处理/unmute命令"""
@@ -1835,9 +1635,7 @@ async def goodnight_greeting_handler(update: Update, context: ContextTypes.DEFAU
     
     sent_message = await update.message.reply_text(reply)
     logger.info(f"🌙 向 {user.full_name} 发送了晚安问候")
-    
-    # 1分钟后自动删除
-    asyncio.create_task(delete_message_later(sent_message, delay=60))
+    asyncio.create_task(delete_message_later(sent_message, delay=300))  # 改为5分钟
 
 async def comfort_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理安慰命令"""
@@ -1876,34 +1674,200 @@ async def comfort_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     sent_message = await update.message.reply_text(reply)
     logger.info(f"🤗 向 {user.full_name} 发送了安慰消息")
+    asyncio.create_task(delete_message_later(sent_message, delay=300))  # 改为5分钟
+
+class NitterMonitor:
+    def __init__(self):
+        self.headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        }
+        self.base_url = "https://nitter.net"  # 可以使用其他 Nitter 实例
+        logger.info("✅ Nitter 监控器已初始化")
+
+    async def get_latest_tweets(self, username: str, count: int = 5) -> List[Dict]:
+        """获取用户的最新推文"""
+        try:
+            async with aiohttp.ClientSession() as session:
+                # 使用 Nitter 的 RSS 源
+                rss_url = f"{self.base_url}/{username}/rss"
+                async with session.get(rss_url, headers=self.headers) as response:
+                    if response.status == 200:
+                        content = await response.text()
+                        return self._parse_rss(content, count)
+            return []
+        except Exception as e:
+            logger.error(f"获取推文失败: {e}")
+            return []
+
+    async def search_tweets(self, keyword: str, count: int = 5) -> List[Dict]:
+        """搜索包含关键词的推文"""
+        try:
+            async with aiohttp.ClientSession() as session:
+                # 使用 Nitter 的搜索功能
+                search_url = f"{self.base_url}/search?f=tweets&q={keyword}"
+                async with session.get(search_url, headers=self.headers) as response:
+                    if response.status == 200:
+                        content = await response.text()
+                        return self._parse_search_results(content, count)
+            return []
+        except Exception as e:
+            logger.error(f"搜索推文失败: {e}")
+            return []
+
+    def _parse_rss(self, content: str, count: int) -> List[Dict]:
+        """解析 RSS 内容"""
+        tweets = []
+        try:
+            # 简单的 RSS 解析
+            items = re.findall(r'<item>(.*?)</item>', content, re.DOTALL)
+            for item in items[:count]:
+                title = re.search(r'<title>(.*?)</title>', item)
+                link = re.search(r'<link>(.*?)</link>', item)
+                pub_date = re.search(r'<pubDate>(.*?)</pubDate>', item)
+                
+                if title and link and pub_date:
+                    tweets.append({
+                        "text": title.group(1),
+                        "url": link.group(1),
+                        "created_at": datetime.strptime(pub_date.group(1), "%a, %d %b %Y %H:%M:%S %z")
+                    })
+        except Exception as e:
+            logger.error(f"解析 RSS 失败: {e}")
+        return tweets
+
+    def _parse_search_results(self, content: str, count: int) -> List[Dict]:
+        """解析搜索结果"""
+        tweets = []
+        try:
+            # 解析搜索结果页面
+            tweet_blocks = re.findall(r'<div class="tweet-content media-body">(.*?)</div>', content, re.DOTALL)
+            for block in tweet_blocks[:count]:
+                text = re.sub(r'<[^>]+>', '', block).strip()
+                if text:
+                    tweets.append({
+                        "text": text,
+                        "url": "",  # 需要从页面中提取
+                        "created_at": datetime.now()  # 需要从页面中提取
+                    })
+        except Exception as e:
+            logger.error(f"解析搜索结果失败: {e}")
+        return tweets
+
+async def nitter_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """处理/nitter命令"""
+    if not await is_admin(update, context):
+        msg = await update.message.reply_text("❌ 只有管理员可以使用此命令")
+        asyncio.create_task(delete_message_later(msg))
+        return
+
+    if not context.args:
+        help_text = (
+            "🐦 Nitter 监控命令:\n\n"
+            "/nitter status - 查看监控状态\n"
+            "/nitter monitor <用户名> - 监控指定用户的推文\n"
+            "/nitter search <关键词> - 搜索包含关键词的推文\n"
+            "/nitter stop - 停止所有监控\n"
+        )
+        await update.message.reply_text(help_text)
+        return
+
+    command = context.args[0].lower()
+    global nitter_monitor
+
+    if command == "status":
+        if not nitter_monitor:
+            await update.message.reply_text("❌ Nitter监控未初始化")
+            return
+        await update.message.reply_text("✅ Nitter监控运行正常")
+
+    elif command == "monitor":
+        if len(context.args) < 2:
+            await update.message.reply_text("❌ 请提供要监控的用户名")
+            return
+
+        username = context.args[1]
+        try:
+            tweets = await nitter_monitor.get_latest_tweets(username)
+            if tweets:
+                message = f"✅ 成功获取@{username}的最新推文:\n\n"
+                for tweet in tweets:
+                    message += (
+                        f"📝 {tweet['text']}\n"
+                        f"🕒 {tweet['created_at'].strftime('%Y-%m-%d %H:%M')}\n"
+                        f"🔗 {tweet['url']}\n\n"
+                    )
+            else:
+                message = f"❌ 未找到@{username}的推文"
+            await update.message.reply_text(message)
+        except Exception as e:
+            await update.message.reply_text(f"❌ 获取推文失败: {str(e)}")
+
+    elif command == "search":
+        if len(context.args) < 2:
+            await update.message.reply_text("❌ 请提供要搜索的关键词")
+            return
+
+        keyword = " ".join(context.args[1:])
+        try:
+            tweets = await nitter_monitor.search_tweets(keyword)
+            if tweets:
+                message = f"✅ 找到包含'{keyword}'的推文:\n\n"
+                for tweet in tweets:
+                    message += (
+                        f"📝 {tweet['text']}\n"
+                        f"🕒 {tweet['created_at'].strftime('%Y-%m-%d %H:%M')}\n"
+                        f"🔗 {tweet['url']}\n\n"
+                    )
+            else:
+                message = f"❌ 未找到包含'{keyword}'的推文"
+            await update.message.reply_text(message)
+        except Exception as e:
+            await update.message.reply_text(f"❌ 搜索推文失败: {str(e)}")
+
+    elif command == "stop":
+        if not nitter_monitor:
+            await update.message.reply_text("❌ Nitter监控未初始化")
+            return
+        await update.message.reply_text("✅ Nitter监控已停止")
+
+    else:
+        await update.message.reply_text("❌ 未知命令，请使用 status/monitor/search/stop")
+
+async def check_nitter_updates(context: ContextTypes.DEFAULT_TYPE):
+    """检查Nitter更新"""
+    global nitter_monitor
+    if not nitter_monitor:
+        logger.warning("Nitter monitor not initialized - skipping update check")
+        return
     
-    # 1分钟后自动删除
-    asyncio.create_task(delete_message_later(sent_message, delay=60))
+    # 从环境变量获取配置
+    chat_id = int(os.getenv("NITTER_MONITOR_CHAT_ID", "-100123456789"))
+    accounts = os.getenv("NITTER_MONITOR_ACCOUNTS", "").split(",")
+    
+    for username in accounts:
+        try:
+            tweets = await nitter_monitor.get_latest_tweets(username)
+            if not tweets:
+                continue
+            
+            for tweet in tweets:
+                message = (
+                    f"🐦 **@{username} 的新推文**\n\n"
+                    f"{tweet['text']}\n\n"
+                    f"🕒 {tweet['created_at'].strftime('%Y-%m-%d %H:%M')}\n"
+                    f"🔗 {tweet['url']}"
+                )
+                await context.bot.send_message(chat_id=chat_id, text=message, parse_mode="Markdown")
+        except Exception as e:
+            logger.error(f"处理Nitter更新时出错: {e}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global bot_app, bot_initialized, ban_records, twitter_monitor
-    twitter_monitor = None  # 默认禁用
+    global bot_app, bot_initialized, ban_records, nitter_monitor
     
-    # 检查Twitter凭据
-    twitter_creds_configured = all([
-        TWITTER_API_KEY,
-        TWITTER_API_SECRET_KEY,
-        TWITTER_ACCESS_TOKEN,
-        TWITTER_ACCESS_TOKEN_SECRET
-    ])
-
-    if twitter_creds_configured:
-        try:
-            twitter_monitor = TwitterMonitor()
-            logger.info("✅ Twitter 监控器已初始化")
-        except Exception as e:
-            logger.error(f"❌ Twitter 初始化失败: {e}")
-            twitter_monitor = None
-    else:
-        logger.warning("⚠️ Twitter 凭据未完整配置，Twitter 功能已禁用")
-        twitter_monitor = None
-
+    # 初始化 Nitter 监控器
+    nitter_monitor = NitterMonitor()
+    
     if not TOKEN:
         raise ValueError("TELEGRAM_BOT_TOKEN environment variable not set")
        
@@ -1933,7 +1897,7 @@ async def lifespan(app: FastAPI):
     bot_app.add_handler(CommandHandler("search", search_handler))
     bot_app.add_handler(CommandHandler("export", export_handler))
     bot_app.add_handler(CallbackQueryHandler(ban_reason_handler))
-    bot_app.add_handler(CommandHandler("twitter", twitter_handler))
+    bot_app.add_handler(CommandHandler("nitter", nitter_handler))
     bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND) & filters.Regex(r'(?i)^(gm|早|早上好|早安|good morning)$'), morning_greeting_handler))
     bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND) & filters.Regex(r'(?i)^(gn|晚安|晚上好|good night|night|nighty night|晚安安|睡觉啦|睡啦|去睡了)$'), goodnight_greeting_handler))
     bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND) & filters.Regex(r'(?i)^(午安|中午好|good afternoon|noon)$'),noon_greeting_handler))
@@ -1945,8 +1909,7 @@ async def lifespan(app: FastAPI):
     
     # 启动调度器
     scheduler = AsyncIOScheduler()
-    # 将监控间隔从5分钟改为15分钟，以减少API调用
-    scheduler.add_job(check_twitter_updates, "interval", minutes=15, args=[bot_app])
+    scheduler.add_job(check_nitter_updates, "interval", minutes=15, args=[bot_app])
     scheduler.start()
     
     # 初始化并启动机器人
