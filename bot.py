@@ -84,8 +84,19 @@ async def twitter_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         try:
             # 测试Twitter API连接
             async with aiohttp.ClientSession() as session:
-                api_url = "https://api.vxtwitter.com/MyStonks_Org/status"
-                async with session.get(api_url, headers=twitter_monitor.headers) as response:
+                # 使用 Twitter API v2 的示例端点
+                api_url = "https://api.twitter.com/2/users/me"
+                auth = tweepy.OAuth1UserHandler(
+                    TWITTER_API_KEY,
+                    TWITTER_API_SECRET_KEY,
+                    TWITTER_ACCESS_TOKEN,
+                    TWITTER_ACCESS_TOKEN_SECRET
+                )
+                headers = {
+                    "Authorization": f"Bearer {auth.access_token}",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+                }
+                async with session.get(api_url, headers=headers) as response:
                     if response.status == 200:
                         status = "✅ Twitter API连接正常"
                     else:
@@ -196,7 +207,7 @@ class TwitterMonitor:
             raise ValueError(f"缺少必要的Twitter凭据: {', '.join(missing_creds)}")
             
         try:
-            # Initialize the client with proper authentication
+            # Initialize Twitter client with rate limiting
             self.client = tweepy.Client(
                 consumer_key=TWITTER_API_KEY,
                 consumer_secret=TWITTER_API_SECRET_KEY,
@@ -204,30 +215,76 @@ class TwitterMonitor:
                 access_token_secret=TWITTER_ACCESS_TOKEN_SECRET,
                 wait_on_rate_limit=True
             )
+            
+            # Rate limiting counters
+            self.api_calls = 0
+            self.last_reset = datetime.now()
+            self.max_calls_per_month = 500  # Free tier limit
+            self.calls_remaining = self.max_calls_per_month
+            
             logger.info("✅ Twitter API客户端初始化成功")
         except Exception as e:
             logger.error(f"❌ Twitter API客户端初始化失败: {e}")
             raise
 
+    def _check_rate_limit(self):
+        """检查API调用限制"""
+        now = datetime.now()
+        # 每月重置计数器
+        if (now - self.last_reset).days >= 30:
+            self.api_calls = 0
+            self.calls_remaining = self.max_calls_per_month
+            self.last_reset = now
+            
+        if self.api_calls >= self.max_calls_per_month:
+            raise Exception("Twitter API monthly limit reached")
+            
+        self.api_calls += 1
+        self.calls_remaining -= 1
+
     async def get_latest_tweets(self, username: str, since_minutes: int = 5) -> List[Dict]:
         """获取用户的最新推文"""
         try:
-            # 使用异步HTTP客户端
+            self._check_rate_limit()
+            
+            # 首先尝试使用Twitter API v2
+            try:
+                user = self.client.get_user(username=username)
+                if not user.data:
+                    raise Exception("User not found")
+                    
+                tweets = self.client.get_users_tweets(
+                    user.data.id,
+                    max_results=5,
+                    tweet_fields=['created_at', 'public_metrics']
+                )
+                
+                if tweets.data:
+                    return [{
+                        "text": tweet.text,
+                        "created_at": tweet.created_at,
+                        "likes": tweet.public_metrics['like_count'],
+                        "retweets": tweet.public_metrics['retweet_count'],
+                        "url": f"https://twitter.com/{username}/status/{tweet.id}"
+                    } for tweet in tweets.data]
+                    
+            except Exception as api_error:
+                logger.warning(f"Twitter API调用失败，使用备用方案: {api_error}")
+                
+            # 如果API调用失败，使用vxtwitter作为备用方案
             async with aiohttp.ClientSession() as session:
-                # 使用vxtwitter API作为备用方案
                 api_url = f"https://api.vxtwitter.com/{username}/status"
                 async with session.get(api_url, headers=self.headers) as response:
                     if response.status == 200:
                         data = await response.json()
                         tweet_time = datetime.strptime(data['date'], "%Y-%m-%dT%H:%M:%S+00:00")
-                        if (datetime.utcnow() - tweet_time) < timedelta(minutes=since_minutes):
-                            return [{
-                                "text": data['text'],
-                                "created_at": tweet_time,
-                                "likes": data['likes'],
-                                "retweets": data['retweets'],
-                                "url": data['tweetURL']
-                            }]
+                        return [{
+                            "text": data['text'],
+                            "created_at": tweet_time,
+                            "likes": data['likes'],
+                            "retweets": data['retweets'],
+                            "url": data['tweetURL']
+                        }]
             return []
         except Exception as e:
             logger.error(f"获取推文失败: {e}")
@@ -236,9 +293,31 @@ class TwitterMonitor:
     async def monitor_keyword(self, keyword: str, count: int = 5) -> List[Dict]:
         """监控某个关键词的最新推文"""
         try:
-            # 使用异步HTTP客户端
+            self._check_rate_limit()
+            
+            # 首先尝试使用Twitter API v2
+            try:
+                tweets = self.client.search_recent_tweets(
+                    query=keyword,
+                    max_results=count,
+                    tweet_fields=['created_at', 'public_metrics', 'author_id']
+                )
+                
+                if tweets.data:
+                    return [{
+                        "text": tweet.text,
+                        "author": tweet.author_id,  # 注意：这里需要额外调用获取用户名
+                        "created_at": tweet.created_at,
+                        "likes": tweet.public_metrics['like_count'],
+                        "retweets": tweet.public_metrics['retweet_count'],
+                        "url": f"https://twitter.com/twitter/status/{tweet.id}"
+                    } for tweet in tweets.data]
+                    
+            except Exception as api_error:
+                logger.warning(f"Twitter API调用失败，使用备用方案: {api_error}")
+                
+            # 如果API调用失败，使用vxtwitter作为备用方案
             async with aiohttp.ClientSession() as session:
-                # 使用vxtwitter API作为备用方案
                 api_url = f"https://api.vxtwitter.com/search?q={keyword}&count={count}"
                 async with session.get(api_url, headers=self.headers) as response:
                     if response.status == 200:
@@ -268,6 +347,17 @@ async def check_twitter_updates(context: ContextTypes.DEFAULT_TYPE):
     chat_id = int(os.getenv("TWITTER_MONITOR_CHAT_ID", "-100123456789"))
     accounts = os.getenv("TWITTER_MONITOR_ACCOUNTS", "MyStonks_Org,MyStonksCN").split(",")
     
+    # 检查API调用限制
+    try:
+        twitter_monitor._check_rate_limit()
+    except Exception as e:
+        logger.warning(f"Twitter API limit reached: {e}")
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=f"⚠️ Twitter API 月度限制已到达 ({twitter_monitor.calls_remaining} 次剩余)\n监控将暂停至下个月重置"
+        )
+        return
+    
     for username in accounts:
         try:
             tweets = await twitter_monitor.get_latest_tweets(username)
@@ -280,7 +370,8 @@ async def check_twitter_updates(context: ContextTypes.DEFAULT_TYPE):
                     f"{tweet['text']}\n\n"
                     f"🕒 {tweet['created_at'].strftime('%Y-%m-%d %H:%M')}\n"
                     f"👍 {tweet['likes']} | 🔁 {tweet['retweets']}\n"
-                    f"🔗 {tweet['url']}"
+                    f"🔗 {tweet['url']}\n\n"
+                    f"📊 API调用剩余: {twitter_monitor.calls_remaining} 次"
                 )
                 await context.bot.send_message(chat_id=chat_id, text=message, parse_mode="Markdown")
         except Exception as e:
@@ -1854,7 +1945,8 @@ async def lifespan(app: FastAPI):
     
     # 启动调度器
     scheduler = AsyncIOScheduler()
-    scheduler.add_job(check_twitter_updates, "interval", minutes=5, args=[bot_app])
+    # 将监控间隔从5分钟改为15分钟，以减少API调用
+    scheduler.add_job(check_twitter_updates, "interval", minutes=15, args=[bot_app])
     scheduler.start()
     
     # 初始化并启动机器人
