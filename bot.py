@@ -70,15 +70,16 @@ class TwitterMonitor:
         # Initialize Twitter API client if credentials are available
         if all([TWITTER_API_KEY, TWITTER_API_SECRET_KEY, TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_TOKEN_SECRET]):
             try:
-                auth = tweepy.OAuthHandler(TWITTER_API_KEY, TWITTER_API_SECRET_KEY)
-                auth.set_access_token(TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_TOKEN_SECRET)
+                # Initialize the client with OAuth 1.0a authentication
                 self.client = tweepy.Client(
-                    bearer_token=TWITTER_ACCESS_TOKEN,
                     consumer_key=TWITTER_API_KEY,
                     consumer_secret=TWITTER_API_SECRET_KEY,
                     access_token=TWITTER_ACCESS_TOKEN,
-                    access_token_secret=TWITTER_ACCESS_TOKEN_SECRET
+                    access_token_secret=TWITTER_ACCESS_TOKEN_SECRET,
+                    wait_on_rate_limit=True
                 )
+                # Test the connection
+                self.client.get_me()
                 print("✅ Twitter API 客户端初始化完成")
             except Exception as e:
                 print(f"❌ Twitter API 客户端初始化失败: {e}")
@@ -92,14 +93,16 @@ class TwitterMonitor:
             # First try using official API if available
             if self.client:
                 try:
+                    # Get user ID first
                     user = self.client.get_user(username=username)
                     if not user.data:
                         raise Exception("User not found")
                     
+                    # Get user's tweets
                     tweets = self.client.get_users_tweets(
                         user.data.id,
                         max_results=5,
-                        tweet_fields=['created_at', 'public_metrics']
+                        tweet_fields=['created_at', 'public_metrics', 'author_id']
                     )
                     
                     if not tweets.data:
