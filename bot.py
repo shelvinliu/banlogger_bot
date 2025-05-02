@@ -1226,14 +1226,20 @@ async def keyword_reply_handler(update: Update, context: ContextTypes.DEFAULT_TY
         asyncio.create_task(delete_message_later(msg))
         return
 
-    if not context.args or len(context.args) < 2:
+    if not context.args:
         help_text = (
             "📝 关键词回复管理命令:\n\n"
-            "/reply add <关键词> <回复内容> [链接] [链接文本] - 添加关键词回复\n"
+            "/reply add - 开始添加关键词回复\n"
+            "/reply edit <关键词> - 开始修改关键词回复\n"
             "/reply del <关键词> - 删除关键词回复\n"
             "/reply list - 查看所有关键词回复\n\n"
+            "添加/修改过程分为三步：\n"
+            "1. 输入关键词\n"
+            "2. 输入回复内容\n"
+            "3. 输入链接和链接文本（可选）\n\n"
             "示例:\n"
-            "/reply add 帮助 这是帮助信息 https://example.com 点击这里"
+            "/reply add\n"
+            "/reply edit 帮助"
         )
         await update.message.reply_text(help_text)
         return
@@ -1241,34 +1247,46 @@ async def keyword_reply_handler(update: Update, context: ContextTypes.DEFAULT_TY
     action = context.args[0].lower()
     
     if action == "add":
-        if len(context.args) < 3:
-            await update.message.reply_text("❌ 格式错误，需要至少提供关键词和回复内容")
+        # 开始添加流程
+        context.user_data["reply_flow"] = {
+            "step": 1,
+            "action": "add"
+        }
+        await update.message.reply_text(
+            "📝 添加关键词回复\n\n"
+            "第1步：请输入关键词\n"
+            "输入 /cancel 取消操作"
+        )
+        
+    elif action == "edit":
+        if len(context.args) < 2:
+            await update.message.reply_text("❌ 请提供要修改的关键词")
             return
             
         keyword = context.args[1]
-        reply_text = " ".join(context.args[2:])
+        replies = await GoogleSheetsStorage.get_keyword_replies()
+        existing_reply = next((r for r in replies if r["关键词"].lower() == keyword.lower()), None)
         
-        # 解析链接和链接文本
-        link = ""
-        link_text = ""
-        if "[链接]" in reply_text and "[链接文本]" in reply_text:
-            parts = reply_text.split("[链接]")
-            reply_text = parts[0].strip()
-            link_parts = parts[1].split("[链接文本]")
-            link = link_parts[0].strip()
-            link_text = link_parts[1].strip() if len(link_parts) > 1 else "点击这里"
+        if not existing_reply:
+            await update.message.reply_text(f"❌ 未找到关键词: {keyword}")
+            return
+            
+        # 开始修改流程
+        context.user_data["reply_flow"] = {
+            "step": 2,  # 直接进入第二步
+            "action": "edit",
+            "keyword": keyword,
+            "existing_reply": existing_reply
+        }
         
-        success = await GoogleSheetsStorage.add_keyword_reply(
-            keyword=keyword,
-            reply_text=reply_text,
-            link=link,
-            link_text=link_text
+        await update.message.reply_text(
+            f"📝 修改关键词回复: {keyword}\n\n"
+            f"当前回复内容: {existing_reply['回复内容']}\n"
+            f"当前链接: {existing_reply.get('链接', '无')}\n"
+            f"当前链接文本: {existing_reply.get('链接文本', '无')}\n\n"
+            "请输入新的回复内容\n"
+            "输入 /cancel 取消操作"
         )
-        
-        if success:
-            await update.message.reply_text(f"✅ 已添加关键词回复: {keyword}")
-        else:
-            await update.message.reply_text("❌ 添加关键词回复失败")
             
     elif action == "del":
         if len(context.args) < 2:
@@ -1302,8 +1320,96 @@ async def keyword_reply_handler(update: Update, context: ContextTypes.DEFAULT_TY
             
         await update.message.reply_text(message)
         
+    elif action == "cancel":
+        if "reply_flow" in context.user_data:
+            del context.user_data["reply_flow"]
+            await update.message.reply_text("✅ 已取消操作")
+        else:
+            await update.message.reply_text("❌ 没有正在进行的操作")
+        
     else:
-        await update.message.reply_text("❌ 未知操作，请使用 add/del/list")
+        await update.message.reply_text("❌ 未知操作，请使用 add/edit/del/list")
+
+async def handle_reply_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理关键词回复的流程"""
+    if not update.message or not update.message.text:
+        return
+        
+    if "reply_flow" not in context.user_data:
+        return
+        
+    flow = context.user_data["reply_flow"]
+    text = update.message.text
+    
+    if text.startswith("/"):
+        return
+        
+    if flow["step"] == 1:
+        # 第一步：获取关键词
+        flow["keyword"] = text
+        flow["step"] = 2
+        await update.message.reply_text(
+            f"📝 关键词: {text}\n\n"
+            "第2步：请输入回复内容\n"
+            "输入 /cancel 取消操作"
+        )
+        
+    elif flow["step"] == 2:
+        # 第二步：获取回复内容
+        flow["reply_text"] = text
+        flow["step"] = 3
+        await update.message.reply_text(
+            f"📝 关键词: {flow['keyword']}\n"
+            f"💬 回复内容: {text}\n\n"
+            "第3步：请输入链接和链接文本（可选）\n"
+            "格式：链接 [链接文本]文本\n"
+            "例如：https://example.com [链接文本]点击这里\n"
+            "直接发送 /skip 跳过此步\n"
+            "输入 /cancel 取消操作"
+        )
+        
+    elif flow["step"] == 3:
+        # 第三步：获取链接信息
+        if text.lower() == "/skip":
+            link = ""
+            link_text = ""
+        else:
+            # 解析链接和链接文本
+            if "[链接文本]" in text:
+                parts = text.split("[链接文本]")
+                link = parts[0].strip()
+                link_text = parts[1].strip() if len(parts) > 1 else "点击这里"
+            else:
+                link = text.strip()
+                link_text = "点击这里"
+        
+        # 保存回复
+        if flow["action"] == "edit":
+            # 修改时先删除旧的
+            await GoogleSheetsStorage.delete_keyword_reply(flow["keyword"])
+            
+        success = await GoogleSheetsStorage.add_keyword_reply(
+            keyword=flow["keyword"],
+            reply_text=flow["reply_text"],
+            link=link,
+            link_text=link_text
+        )
+        
+        if success:
+            action_text = "修改" if flow["action"] == "edit" else "添加"
+            await update.message.reply_text(
+                f"✅ 已{action_text}关键词回复:\n\n"
+                f"🔑 关键词: {flow['keyword']}\n"
+                f"💬 回复: {flow['reply_text']}\n"
+                f"🔗 链接: {link if link else '无'}\n"
+                f"📝 链接文本: {link_text if link else '无'}"
+            )
+        else:
+            await update.message.reply_text(f"❌ {action_text}关键词回复失败")
+            
+        # 清理流程数据
+        del context.user_data["reply_flow"]
+
 async def auto_reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """自动回复关键词消息"""
     if not update.message or not update.message.text:
@@ -1324,12 +1430,24 @@ async def auto_reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     url=reply["链接"]
                 )]]
                 reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                # 添加表情和格式化
+                formatted_reply = (
+                    f"✨ {reply_text}\n\n"
+                    f"💡 点击下方按钮了解更多："
+                )
+                
                 await update.message.reply_text(
-                    reply_text,
+                    formatted_reply,
                     reply_markup=reply_markup
                 )
             else:
-                await update.message.reply_text(reply_text)
+                # 没有链接时也添加一些美化
+                formatted_reply = (
+                    f"✨ {reply_text}\n\n"
+                    f"💫 需要帮助可以随时问我哦~"
+                )
+                await update.message.reply_text(formatted_reply)
             break
 async def records_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """处理/records命令"""
@@ -1626,6 +1744,8 @@ async def lifespan(app: FastAPI):
     if bot_app:
         await bot_app.stop()
         await bot_app.shutdown()
+    # 在 lifespan 函数中添加新的处理器
+    bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_reply_flow))
 router = APIRouter()
 @router.get("/health")
 async def health_check():
