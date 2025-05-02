@@ -1754,13 +1754,20 @@ class TwitterScraper:
         self.logger = logging.getLogger(__name__)
         self.session = None
         self.headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Cache-Control': 'max-age=0'
         }
-
-    async def _get_session(self):
-        if self.session is None:
-            self.session = aiohttp.ClientSession(headers=self.headers)
-        return self.session
+        self.monitored_accounts = {
+            'MyStonksCN': {'last_tweet_id': None},
+            'MyStonks_Org': {'last_tweet_id': None}
+        }
+        self.monitoring_task = None
+        self.group_chats = set()  # 存储机器人所在的群组ID
 
     async def get_latest_tweets(self, username, count=5):
         """获取指定用户的最新推文"""
@@ -1776,7 +1783,8 @@ class TwitterScraper:
         while retry_count < self.max_retries:
             try:
                 session = await self._get_session()
-                url = f"https://syndication.twitter.com/srv/timeline-profile/screen-name/{username}"
+                # 使用 nitter.net
+                url = f"https://nitter.net/{username}"
                 
                 async with session.get(url) as response:
                     if response.status == 404:
@@ -1787,17 +1795,37 @@ class TwitterScraper:
                     html = await response.text()
                     soup = BeautifulSoup(html, 'html.parser')
                     
-                    for tweet in soup.find_all('div', class_='timeline-Tweet')[:count]:
-                        text = tweet.find('p', class_='timeline-Tweet-text')
-                        if text:
-                            tweet_id = tweet['data-tweet-id']
-                            created_at = tweet.find('time')['datetime']
+                    # 解析推文
+                    tweet_elements = soup.select('.timeline-item')
+                    for tweet in tweet_elements[:count]:
+                        try:
+                            # 获取推文内容
+                            content = tweet.select_one('.tweet-content')
+                            if not content:
+                                continue
+                                
+                            # 获取推文ID
+                            tweet_link = tweet.select_one('.tweet-link')
+                            if not tweet_link:
+                                continue
+                            tweet_id = tweet_link['href'].split('/')[-1]
+                            
+                            # 获取发布时间
+                            time_element = tweet.select_one('.tweet-date')
+                            if not time_element:
+                                continue
+                            time_str = time_element['title']
+                            created_at = datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S %z")
+                            
                             tweets.append({
-                                'text': text.get_text(),
-                                'created_at': datetime.strptime(created_at, "%Y-%m-%dT%H:%M:%S.%fZ"),
+                                'text': content.get_text(strip=True),
+                                'created_at': created_at,
                                 'url': f"https://twitter.com/{username}/status/{tweet_id}",
                                 'author': username
                             })
+                        except Exception as e:
+                            self.logger.warning(f"解析推文时出错: {str(e)}")
+                            continue
                 
                 if tweets:
                     return tweets
@@ -1820,67 +1848,95 @@ class TwitterScraper:
         
         return []
 
-    async def search_tweets(self, keyword, count=5):
-        """搜索包含关键词的推文"""
-        if not keyword:
-            raise ValueError("搜索关键词不能为空")
-
-        self.logger.info(f"Searching tweets for keyword: {keyword}")
-        
-        tweets = []
-        retry_count = 0
-        
-        while retry_count < self.max_retries:
-            try:
-                session = await self._get_session()
-                url = f"https://syndication.twitter.com/srv/timeline-search/search?q={urllib.parse.quote(keyword)}"
-                
-                async with session.get(url) as response:
-                    if response.status != 200:
-                        raise Exception(f"搜索推文失败: HTTP {response.status}")
-                    
-                    html = await response.text()
-                    soup = BeautifulSoup(html, 'html.parser')
-                    
-                    for tweet in soup.find_all('div', class_='timeline-Tweet')[:count]:
-                        text = tweet.find('p', class_='timeline-Tweet-text')
-                        if text:
-                            tweet_id = tweet['data-tweet-id']
-                            created_at = tweet.find('time')['datetime']
-                            author = tweet.find('span', class_='TweetAuthor-screenName').get_text().lstrip('@')
-                            tweets.append({
-                                'text': text.get_text(),
-                                'created_at': datetime.strptime(created_at, "%Y-%m-%dT%H:%M:%S.%fZ"),
-                                'url': f"https://twitter.com/{author}/status/{tweet_id}",
-                                'author': author
-                            })
-                
-                if tweets:
-                    return tweets
-                else:
-                    self.logger.warning(f"No tweets found for keyword: {keyword}")
-                    return []
-                    
-            except aiohttp.ClientError as e:
-                retry_count += 1
-                error_msg = str(e)
-                self.logger.error(f"Error searching tweets for '{keyword}' (attempt {retry_count}/{self.max_retries}): {error_msg}")
-                
-                if retry_count < self.max_retries:
-                    await asyncio.sleep(self.retry_delay * retry_count)
-                else:
-                    raise Exception(f"搜索推文失败: {error_msg}")
-            
-            except Exception as e:
-                raise e
-        
-        return []
+    async def _get_session(self):
+        if self.session is None:
+            self.session = aiohttp.ClientSession(headers=self.headers)
+        return self.session
 
     async def close(self):
         """关闭会话"""
         if self.session:
             await self.session.close()
             self.session = None
+        if self.monitoring_task:
+            await self.stop_monitoring()
+
+    async def start_monitoring(self, bot_app):
+        """开始监控指定账号的推文"""
+        if self.monitoring_task is not None:
+            return
+            
+        # 获取机器人所在的所有群组
+        try:
+            updates = await bot_app.bot.get_updates()
+            for update in updates:
+                if update.message and update.message.chat.type in ['group', 'supergroup']:
+                    self.group_chats.add(update.message.chat.id)
+            
+            if not self.group_chats:
+                self.logger.warning("机器人未加入任何群组，无法发送推文通知")
+                return
+                
+            self.logger.info(f"机器人已加入 {len(self.group_chats)} 个群组")
+        except Exception as e:
+            self.logger.error(f"获取群组信息失败: {e}")
+            return
+            
+        self.monitoring_task = asyncio.create_task(self._monitor_tweets(bot_app))
+        
+    async def stop_monitoring(self):
+        """停止监控"""
+        if self.monitoring_task is not None:
+            self.monitoring_task.cancel()
+            self.monitoring_task = None
+            
+    async def _monitor_tweets(self, bot_app):
+        """监控推文的主循环"""
+        while True:
+            try:
+                for username in self.monitored_accounts:
+                    try:
+                        tweets = await self.get_latest_tweets(username, count=1)
+                        if tweets:
+                            latest_tweet = tweets[0]
+                            last_tweet_id = self.monitored_accounts[username]['last_tweet_id']
+                            
+                            if last_tweet_id is None or latest_tweet['url'].split('/')[-1] != last_tweet_id:
+                                # 新推文，发送通知到所有群组
+                                message = (
+                                    f"🐦 新推文通知\n\n"
+                                    f"👤 @{username}\n"
+                                    f"📝 {latest_tweet['text']}\n"
+                                    f"🕒 {latest_tweet['created_at'].strftime('%Y-%m-%d %H:%M')}\n"
+                                    f"🔗 {latest_tweet['url']}"
+                                )
+                                
+                                # 向所有群组发送通知
+                                for chat_id in self.group_chats:
+                                    try:
+                                        await bot_app.bot.send_message(
+                                            chat_id=chat_id,
+                                            text=message,
+                                            disable_web_page_preview=True
+                                        )
+                                    except Exception as e:
+                                        self.logger.error(f"向群组 {chat_id} 发送推文通知失败: {e}")
+                                        # 如果发送失败，可能是机器人被移出群组，从列表中移除
+                                        self.group_chats.discard(chat_id)
+                                
+                                # 更新最后一条推文ID
+                                self.monitored_accounts[username]['last_tweet_id'] = latest_tweet['url'].split('/')[-1]
+                    except Exception as e:
+                        self.logger.error(f"获取 @{username} 的推文失败: {e}")
+                
+                # 每5分钟检查一次
+                await asyncio.sleep(300)
+                
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error(f"监控推文时出错: {e}")
+                await asyncio.sleep(60)  # 出错后等待1分钟再重试
 
 # 替换原来的 NitterMonitor 实例
 nitter_monitor = TwitterScraper()
@@ -1909,7 +1965,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
-    global bot_app, bot_initialized, ban_records
+    global bot_app, bot_initialized, ban_records, nitter_monitor
     
     try:
         # 初始化 Telegram Bot
@@ -1941,7 +1997,7 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(CallbackQueryHandler(reply_callback_handler, pattern="^reply:"))
         
         # 添加消息处理器
-        bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))  # 替换原来的消息处理器
+        bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
         bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, auto_reply_handler))
         bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_reply_flow))
         
@@ -1953,6 +2009,10 @@ async def lifespan(app: FastAPI):
         await bot_app.initialize()
         await bot_app.start()
         bot_initialized = True
+        
+        # 初始化并启动 Twitter 监控
+        nitter_monitor = TwitterScraper()
+        await nitter_monitor.start_monitoring(bot_app)
         
         yield
         
