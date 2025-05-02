@@ -1977,6 +1977,12 @@ async def telegram_webhook(request: Request):
         logger.error(f"Error processing webhook: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# 添加根路径处理
+@app.get("/")
+async def root():
+    """根路径处理"""
+    return {"status": "ok", "message": "Telegram Bot is running"}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
