@@ -1748,6 +1748,7 @@ async def lifespan(app: FastAPI):
     bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_reply_flow))
 router = APIRouter()
 @router.get("/health")
+@router.post("/health")
 async def health_check():
     return {
         "status": "running",
