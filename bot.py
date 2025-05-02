@@ -30,6 +30,7 @@ from telegram.ext import (
     MessageHandler,
     filters
 )
+import twint
 
 # 配置日志
 logging.basicConfig(
@@ -1761,210 +1762,116 @@ class TwitterScraper:
     def __init__(self):
         self.max_retries = 3
         self.retry_delay = 5
-        self.last_successful_scrape = None
+        self.logger = logging.getLogger(__name__)
 
     async def get_latest_tweets(self, username, count=5):
+        """获取指定用户的最新推文"""
         if not username:
-            logger.error("Username is required")
-            return []
+            raise ValueError("用户名不能为空")
 
-        username = username.lstrip('@')  # 移除可能的 @ 前缀
-        logger.info(f"Fetching tweets for @{username} using snscrape")
+        username = username.lstrip('@')
+        self.logger.info(f"Fetching tweets for @{username} using twint")
         
-        try:
-            import snscrape.modules.twitter as sntwitter
-            
-            tweets = []
-            for i, tweet in enumerate(sntwitter.TwitterUserScraper(username).get_items()):
-                if i >= count:
-                    break
-                tweets.append({
-                    "text": tweet.content,
-                    "url": f"https://twitter.com/{username}/status/{tweet.id}",
-                    "created_at": tweet.date
-                })
-            
-            if tweets:
-                logger.info(f"Successfully fetched {len(tweets)} tweets for @{username}")
-                return tweets
-            else:
-                logger.warning(f"No tweets found for @{username}")
-                return []
+        tweets = []
+        retry_count = 0
+        
+        while retry_count < self.max_retries:
+            try:
+                # 配置 twint
+                c = twint.Config()
+                c.Username = username
+                c.Limit = count
+                c.Store_object = True
+                c.Hide_output = True
                 
-        except Exception as e:
-            logger.error(f"Failed to get tweets for @{username}: {str(e)}")
-            return []
+                # 运行爬虫
+                twint.run.Search(c)
+                
+                # 获取结果
+                for tweet in twint.output.tweets_list:
+                    tweets.append({
+                        'text': tweet.tweet,
+                        'created_at': tweet.datetime,
+                        'url': f"https://twitter.com/{username}/status/{tweet.id}",
+                        'author': username
+                    })
+                
+                if tweets:
+                    return tweets
+                else:
+                    self.logger.warning(f"No tweets found for @{username}")
+                    return []
+                    
+            except Exception as e:
+                retry_count += 1
+                error_msg = str(e)
+                self.logger.error(f"Error fetching tweets for @{username} (attempt {retry_count}/{self.max_retries}): {error_msg}")
+                
+                if "User not found" in error_msg:
+                    raise ValueError(f"用户 @{username} 不存在")
+                elif "Rate limit exceeded" in error_msg:
+                    self.logger.warning("Rate limit exceeded, waiting before retry...")
+                    await asyncio.sleep(self.retry_delay * retry_count)
+                else:
+                    if retry_count < self.max_retries:
+                        await asyncio.sleep(self.retry_delay)
+                    else:
+                        raise Exception(f"获取推文失败: {error_msg}")
+        
+        return []
 
     async def search_tweets(self, keyword, count=5):
+        """搜索包含关键词的推文"""
         if not keyword:
-            logger.error("Search keyword is required")
-            return []
+            raise ValueError("搜索关键词不能为空")
 
-        logger.info(f"Searching tweets for '{keyword}' using snscrape")
+        self.logger.info(f"Searching tweets for keyword: {keyword}")
         
-        try:
-            import snscrape.modules.twitter as sntwitter
-            
-            tweets = []
-            for i, tweet in enumerate(sntwitter.TwitterSearchScraper(keyword).get_items()):
-                if i >= count:
-                    break
-                tweets.append({
-                    "text": tweet.content,
-                    "url": f"https://twitter.com/{tweet.user.username}/status/{tweet.id}",
-                    "author": tweet.user.username,
-                    "created_at": tweet.date
-                })
-            
-            if tweets:
-                logger.info(f"Successfully found {len(tweets)} tweets for '{keyword}'")
-                return tweets
-            else:
-                logger.warning(f"No tweets found for '{keyword}'")
-                return []
+        tweets = []
+        retry_count = 0
+        
+        while retry_count < self.max_retries:
+            try:
+                # 配置 twint
+                c = twint.Config()
+                c.Search = keyword
+                c.Limit = count
+                c.Store_object = True
+                c.Hide_output = True
                 
-        except Exception as e:
-            logger.error(f"Failed to search tweets for '{keyword}': {str(e)}")
-            return []
+                # 运行爬虫
+                twint.run.Search(c)
+                
+                # 获取结果
+                for tweet in twint.output.tweets_list:
+                    tweets.append({
+                        'text': tweet.tweet,
+                        'created_at': tweet.datetime,
+                        'url': f"https://twitter.com/{tweet.username}/status/{tweet.id}",
+                        'author': tweet.username
+                    })
+                
+                if tweets:
+                    return tweets
+                else:
+                    self.logger.warning(f"No tweets found for keyword: {keyword}")
+                    return []
+                    
+            except Exception as e:
+                retry_count += 1
+                error_msg = str(e)
+                self.logger.error(f"Error searching tweets for '{keyword}' (attempt {retry_count}/{self.max_retries}): {error_msg}")
+                
+                if "Rate limit exceeded" in error_msg:
+                    self.logger.warning("Rate limit exceeded, waiting before retry...")
+                    await asyncio.sleep(self.retry_delay * retry_count)
+                else:
+                    if retry_count < self.max_retries:
+                        await asyncio.sleep(self.retry_delay)
+                    else:
+                        raise Exception(f"搜索推文失败: {error_msg}")
+        
+        return []
 
 # 替换原来的 NitterMonitor 实例
 nitter_monitor = TwitterScraper()
-
-async def check_nitter_updates(bot_app: Application):
-    try:
-        if not nitter_monitor:
-            logger.error("NitterMonitor 未初始化")
-            return
-
-        chat_id = os.getenv('NITTER_MONITOR_CHAT_ID')
-        if not chat_id:
-            logger.error("未设置 NITTER_MONITOR_CHAT_ID")
-            return
-
-        accounts = os.getenv('NITTER_MONITOR_ACCOUNTS', '').split(',')
-        if not accounts:
-            logger.error("未设置要监控的账号")
-            return
-
-        for account in accounts:
-            account = account.strip()
-            if not account:
-                continue
-
-            try:
-                tweets = await nitter_monitor.get_latest_tweets(account)
-                if tweets:
-                    for tweet in tweets:
-                        message = f"📢 新推文\n\n来自: @{account}\n\n{tweet['text']}\n\n{tweet['url']}"
-                        await bot_app.bot.send_message(chat_id=chat_id, text=message)
-                        await asyncio.sleep(1)  # 添加延迟避免发送过快
-            except Exception as e:
-                logger.error(f"检查账号 {account} 更新失败: {str(e)}")
-                continue
-
-    except Exception as e:
-        logger.error(f"检查 Nitter 更新失败: {str(e)}")
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global bot_app, bot_initialized, ban_records, nitter_monitor
-    
-    # 初始化 Nitter 监控器
-    nitter_monitor = TwitterScraper()
-    
-    if not TOKEN:
-        raise ValueError("TELEGRAM_BOT_TOKEN environment variable not set")
-       
-    # Try Google Sheets connection only if credentials exist
-    if GOOGLE_SHEETS_CREDENTIALS:
-        try:
-            logger.info("正在验证Google Sheets连接...")
-            ban_records = await GoogleSheetsStorage.load_from_sheet()
-            logger.info(f"从Google Sheet加载了 {len(ban_records)} 条历史记录")
-        except Exception as e:
-            logger.error(f"Google Sheets连接失败: {e}")
-            logger.warning("将仅使用内存存储")
-            ban_records = []
-    else:
-        logger.warning("未配置GOOGLE_SHEETS_CREDENTIALS，将仅使用内存存储")
-        ban_records = []
-
-    # Initialize bot
-    bot_app = ApplicationBuilder().token(TOKEN).build()
-    
-    # 添加所有处理器
-    bot_app.add_handler(CommandHandler("start", start_handler))
-    bot_app.add_handler(CommandHandler("k", kick_handler))
-    bot_app.add_handler(CommandHandler("m", mute_handler))
-    bot_app.add_handler(CommandHandler("um", unmute_handler))
-    bot_app.add_handler(CommandHandler("records", records_handler))
-    bot_app.add_handler(CommandHandler("search", search_handler))
-    bot_app.add_handler(CommandHandler("export", export_handler))
-    bot_app.add_handler(CallbackQueryHandler(ban_reason_handler))
-    bot_app.add_handler(CommandHandler("nitter", nitter_handler))
-    bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND) & filters.Regex(r'(?i)^(gm|早|早上好|早安|good morning)$'), morning_greeting_handler))
-    bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND) & filters.Regex(r'(?i)^(gn|晚安|晚上好|good night|night|nighty night|晚安安|睡觉啦|睡啦|去睡了)$'), goodnight_greeting_handler))
-    bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND) & filters.Regex(r'(?i)^(午安|中午好|good afternoon|noon)$'),noon_greeting_handler))
-    bot_app.add_handler(CommandHandler("comfort", comfort_handler))
-    bot_app.add_handler(CommandHandler("reply", keyword_reply_handler))
-    bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), auto_reply_handler))
-    bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_reply_flow))
-    bot_app.add_handler(CallbackQueryHandler(reply_callback_handler, pattern="^reply:"))
-    
-    # 启动调度器
-    scheduler = AsyncIOScheduler()
-    scheduler.add_job(check_nitter_updates, "interval", minutes=15, args=[bot_app])
-    scheduler.start()
-    
-    # 初始化并启动机器人
-    await bot_app.initialize()
-    await bot_app.start()
-    if WEBHOOK_URL:
-        await bot_app.bot.set_webhook(url=WEBHOOK_URL)
-
-    bot_initialized = True
-    yield
-    scheduler.shutdown()
-    if bot_app:
-        await bot_app.stop()
-        await bot_app.shutdown()
-
-router = APIRouter()
-
-@router.get("/")
-async def root():
-    return {"status": "ok", "message": "Bot is running"}
-
-@router.get("/health")
-@router.head("/health")  # 添加 HEAD 方法支持
-@router.post("/health")
-async def health_check():
-    return {
-        "status": "running",
-        "bot_initialized": bot_initialized,
-        "ban_records_count": len(ban_records),
-        "google_sheets_connected": bool(GOOGLE_SHEETS_CREDENTIALS)
-    }
-
-app = FastAPI(lifespan=lifespan)
-
-# Include your router if you have one
-app.include_router(router)
-@app.post(WEBHOOK_PATH)
-async def telegram_webhook(request: Request):
-    """Telegram Webhook入口"""
-    if not bot_app or not bot_initialized:
-        raise HTTPException(status_code=503, detail="Bot未初始化")
-    
-    try:
-        data = await request.json()
-        update = Update.de_json(data, bot_app.bot)
-        await bot_app.process_update(update)
-        return {"ok": True}
-    except Exception as e:
-        logger.error(f"处理更新失败: {e}")
-        raise HTTPException(status_code=400, detail="处理更新失败")
-# This is important for Render to detect your ASGI app
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
