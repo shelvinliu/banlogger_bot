@@ -10,5 +10,5 @@ python-dotenv==1.0.0
 apscheduler==3.10.1
 beautifulsoup4==4.12.2
 requests==2.31.0
-snscrape==0.6.2.20240206
+snscrape==0.7.0.20230622
 aiohttp==3.9.1
