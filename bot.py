@@ -1230,12 +1230,12 @@ async def keyword_reply_handler(update: Update, context: ContextTypes.DEFAULT_TY
         # 创建主菜单按钮
         keyboard = [
             [
-                InlineKeyboardButton("➕ 添加回复", callback_data="reply_add"),
-                InlineKeyboardButton("✏️ 修改回复", callback_data="reply_edit")
+                InlineKeyboardButton("➕ 添加回复", callback_data="reply:add"),
+                InlineKeyboardButton("✏️ 修改回复", callback_data="reply:edit")
             ],
             [
-                InlineKeyboardButton("🗑️ 删除回复", callback_data="reply_delete"),
-                InlineKeyboardButton("📋 查看列表", callback_data="reply_list")
+                InlineKeyboardButton("🗑️ 删除回复", callback_data="reply:delete"),
+                InlineKeyboardButton("📋 查看列表", callback_data="reply:list")
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1256,10 +1256,15 @@ async def reply_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         await query.message.edit_text("❌ 只有管理员可以使用此命令")
         return
         
-    action = query.data
-    
     try:
-        if action == "reply_add":
+        action_type, *action_data = query.data.split(":")
+        action = action_data[0] if action_data else ""
+        
+        if action_type != "reply":
+            await query.message.edit_text("❌ 无效的操作")
+            return
+            
+        if action == "add":
             # 开始添加流程
             context.user_data["reply_flow"] = {
                 "step": 1,
@@ -1271,7 +1276,7 @@ async def reply_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
                 "输入 /cancel 取消操作"
             )
             
-        elif action == "reply_edit":
+        elif action == "edit":
             # 获取所有关键词
             replies = await GoogleSheetsStorage.get_keyword_replies()
             if not replies:
@@ -1283,10 +1288,10 @@ async def reply_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             for reply in replies:
                 keyboard.append([InlineKeyboardButton(
                     f"🔑 {reply['关键词']}",
-                    callback_data=f"edit_{reply['关键词']}"
+                    callback_data=f"reply:edit_keyword:{reply['关键词']}"
                 )])
                 
-            keyboard.append([InlineKeyboardButton("🔙 返回", callback_data="reply_menu")])
+            keyboard.append([InlineKeyboardButton("🔙 返回", callback_data="reply:menu")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             await query.message.edit_text(
@@ -1295,7 +1300,7 @@ async def reply_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
                 reply_markup=reply_markup
             )
             
-        elif action == "reply_delete":
+        elif action == "delete":
             # 获取所有关键词
             replies = await GoogleSheetsStorage.get_keyword_replies()
             if not replies:
@@ -1307,10 +1312,10 @@ async def reply_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             for reply in replies:
                 keyboard.append([InlineKeyboardButton(
                     f"🗑️ {reply['关键词']}",
-                    callback_data=f"delete_{reply['关键词']}"
+                    callback_data=f"reply:delete_keyword:{reply['关键词']}"
                 )])
                 
-            keyboard.append([InlineKeyboardButton("🔙 返回", callback_data="reply_menu")])
+            keyboard.append([InlineKeyboardButton("🔙 返回", callback_data="reply:menu")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             await query.message.edit_text(
@@ -1319,7 +1324,7 @@ async def reply_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
                 reply_markup=reply_markup
             )
             
-        elif action == "reply_list":
+        elif action == "list":
             replies = await GoogleSheetsStorage.get_keyword_replies()
             
             if not replies:
@@ -1336,21 +1341,21 @@ async def reply_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
                     message += f"🔗 链接: {reply['链接']} ({reply.get('链接文本', '点击这里')})\n"
                 message += "━━━━━━━━━━━━━━\n"
                 
-            keyboard = [[InlineKeyboardButton("🔙 返回", callback_data="reply_menu")]]
+            keyboard = [[InlineKeyboardButton("🔙 返回", callback_data="reply:menu")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             await query.message.edit_text(message, reply_markup=reply_markup)
             
-        elif action == "reply_menu":
+        elif action == "menu":
             # 返回主菜单
             keyboard = [
                 [
-                    InlineKeyboardButton("➕ 添加回复", callback_data="reply_add"),
-                    InlineKeyboardButton("✏️ 修改回复", callback_data="reply_edit")
+                    InlineKeyboardButton("➕ 添加回复", callback_data="reply:add"),
+                    InlineKeyboardButton("✏️ 修改回复", callback_data="reply:edit")
                 ],
                 [
-                    InlineKeyboardButton("🗑️ 删除回复", callback_data="reply_delete"),
-                    InlineKeyboardButton("📋 查看列表", callback_data="reply_list")
+                    InlineKeyboardButton("🗑️ 删除回复", callback_data="reply:delete"),
+                    InlineKeyboardButton("📋 查看列表", callback_data="reply:list")
                 ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1361,8 +1366,8 @@ async def reply_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
                 reply_markup=reply_markup
             )
             
-        elif action.startswith("edit_"):
-            keyword = action.replace("edit_", "")
+        elif action == "edit_keyword":
+            keyword = action_data[1] if len(action_data) > 1 else ""
             replies = await GoogleSheetsStorage.get_keyword_replies()
             existing_reply = next((r for r in replies if r["关键词"] == keyword), None)
             
@@ -1387,14 +1392,14 @@ async def reply_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
                 "输入 /cancel 取消操作"
             )
             
-        elif action.startswith("delete_"):
-            keyword = action.replace("delete_", "")
+        elif action == "delete_keyword":
+            keyword = action_data[1] if len(action_data) > 1 else ""
             
             # 创建确认按钮
             keyboard = [
                 [
-                    InlineKeyboardButton("✅ 确认删除", callback_data=f"confirm_{keyword}"),
-                    InlineKeyboardButton("❌ 取消", callback_data="reply_delete")
+                    InlineKeyboardButton("✅ 确认删除", callback_data=f"reply:confirm_delete:{keyword}"),
+                    InlineKeyboardButton("❌ 取消", callback_data="reply:delete")
                 ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1405,8 +1410,8 @@ async def reply_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
                 reply_markup=reply_markup
             )
             
-        elif action.startswith("confirm_"):
-            keyword = action.replace("confirm_", "")
+        elif action == "confirm_delete":
+            keyword = action_data[1] if len(action_data) > 1 else ""
             success = await GoogleSheetsStorage.delete_keyword_reply(keyword)
             
             if success:
@@ -1418,12 +1423,12 @@ async def reply_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             await asyncio.sleep(2)
             keyboard = [
                 [
-                    InlineKeyboardButton("➕ 添加回复", callback_data="reply_add"),
-                    InlineKeyboardButton("✏️ 修改回复", callback_data="reply_edit")
+                    InlineKeyboardButton("➕ 添加回复", callback_data="reply:add"),
+                    InlineKeyboardButton("✏️ 修改回复", callback_data="reply:edit")
                 ],
                 [
-                    InlineKeyboardButton("🗑️ 删除回复", callback_data="reply_delete"),
-                    InlineKeyboardButton("📋 查看列表", callback_data="reply_list")
+                    InlineKeyboardButton("🗑️ 删除回复", callback_data="reply:delete"),
+                    InlineKeyboardButton("📋 查看列表", callback_data="reply:list")
                 ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
