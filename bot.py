@@ -6,8 +6,6 @@ import pytz
 import random
 import asyncio
 import aiohttp
-import subprocess
-import snscrape.modules.twitter as sntwitter
 import logging
 import base64
 from datetime import datetime, timedelta
@@ -15,7 +13,6 @@ from typing import Optional, Dict, Any, List
 from contextlib import asynccontextmanager
 import pandas as pd
 import gspread
-from typing import List, Dict, Optional
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from oauth2client.service_account import ServiceAccountCredentials
 from fastapi import FastAPI, Request, HTTPException, APIRouter
@@ -70,16 +67,8 @@ class TwitterMonitor:
         # Initialize Twitter API client if credentials are available
         if all([TWITTER_API_KEY, TWITTER_API_SECRET_KEY, TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_TOKEN_SECRET]):
             try:
-                # First get a bearer token using OAuth 2.0
-                auth = tweepy.OAuth2AppHandler(
-                    TWITTER_API_KEY,
-                    TWITTER_API_SECRET_KEY
-                )
-                bearer_token = auth.get_access_token()
-                
-                # Initialize the client with the bearer token
+                # Initialize the client with OAuth 1.0a authentication
                 self.client = tweepy.Client(
-                    bearer_token=bearer_token,
                     consumer_key=TWITTER_API_KEY,
                     consumer_secret=TWITTER_API_SECRET_KEY,
                     access_token=TWITTER_ACCESS_TOKEN,
