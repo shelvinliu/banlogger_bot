@@ -177,11 +177,32 @@ class TwitterMonitor:
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         }
-        # Initialize the client with bearer token authentication
-        self.client = tweepy.Client(
-            bearer_token="AAAAAAAAAAAAAAAAAAAAACzm0wEAAAAA3GO2/HmBJ1lwr05CGt58SHxQdGw=FsomP2iBfhMhrTGMkszgOxFjpE0Ef7Yue6z5OWbpb6JcqODJt6",
-            wait_on_rate_limit=True
-        )
+        
+        # 检查必要的环境变量
+        required_creds = {
+            "api_key": TWITTER_API_KEY,
+            "api_secret": TWITTER_API_SECRET_KEY,
+            "access_token": TWITTER_ACCESS_TOKEN,
+            "access_token_secret": TWITTER_ACCESS_TOKEN_SECRET
+        }
+        
+        missing_creds = [k for k, v in required_creds.items() if not v]
+        if missing_creds:
+            raise ValueError(f"缺少必要的Twitter凭据: {', '.join(missing_creds)}")
+            
+        try:
+            # Initialize the client with proper authentication
+            self.client = tweepy.Client(
+                consumer_key=TWITTER_API_KEY,
+                consumer_secret=TWITTER_API_SECRET_KEY,
+                access_token=TWITTER_ACCESS_TOKEN,
+                access_token_secret=TWITTER_ACCESS_TOKEN_SECRET,
+                wait_on_rate_limit=True
+            )
+            logger.info("✅ Twitter API客户端初始化成功")
+        except Exception as e:
+            logger.error(f"❌ Twitter API客户端初始化失败: {e}")
+            raise
 
     async def get_latest_tweets(self, username: str, since_minutes: int = 5) -> List[Dict]:
         try:
@@ -1794,6 +1815,8 @@ async def comfort_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def lifespan(app: FastAPI):
     global bot_app, bot_initialized, ban_records, twitter_monitor
     twitter_monitor = None  # 默认禁用
+    
+    # 检查Twitter凭据
     twitter_creds_configured = all([
         TWITTER_API_KEY,
         TWITTER_API_SECRET_KEY,
