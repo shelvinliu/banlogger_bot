@@ -1681,9 +1681,22 @@ class NitterMonitor:
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
-        self.base_url = "https://nitter.net"  # 可以替换为其他 Nitter 实例
+        self.base_urls = [
+            "https://nitter.net",
+            "https://nitter.1d4.us",
+            "https://nitter.kavin.rocks",
+            "https://nitter.unixfox.eu"
+        ]  # 多个 Nitter 实例作为备选
+        self.current_url_index = 0
         self.max_retries = 3
         self.retry_delay = 5  # 重试延迟秒数
+
+    def _get_current_url(self):
+        return self.base_urls[self.current_url_index]
+
+    def _switch_url(self):
+        self.current_url_index = (self.current_url_index + 1) % len(self.base_urls)
+        logger.info(f"切换到 Nitter 实例: {self._get_current_url()}")
 
     async def _make_request(self, url, retry_count=0):
         try:
@@ -1697,21 +1710,24 @@ class NitterMonitor:
                             return await self._make_request(url, retry_count + 1)
                         raise Exception("Rate limit exceeded")
                     else:
+                        self._switch_url()  # 切换实例
                         raise Exception(f"HTTP error: {response.status}")
         except asyncio.TimeoutError:
             if retry_count < self.max_retries:
                 await asyncio.sleep(self.retry_delay * (retry_count + 1))
                 return await self._make_request(url, retry_count + 1)
+            self._switch_url()  # 切换实例
             raise Exception("Request timeout")
         except Exception as e:
             if retry_count < self.max_retries:
                 await asyncio.sleep(self.retry_delay * (retry_count + 1))
                 return await self._make_request(url, retry_count + 1)
+            self._switch_url()  # 切换实例
             raise e
 
     async def get_latest_tweets(self, username, count=5):
         try:
-            url = f"{self.base_url}/{username}/rss"
+            url = f"{self._get_current_url()}/{username}/rss"
             content = await self._make_request(url)
             return self._parse_rss(content, count)
         except Exception as e:
@@ -1720,7 +1736,7 @@ class NitterMonitor:
 
     async def search_tweets(self, keyword, count=5):
         try:
-            url = f"{self.base_url}/search?f=tweets&q={keyword}"
+            url = f"{self._get_current_url()}/search?f=tweets&q={keyword}"
             content = await self._make_request(url)
             return self._parse_search_results(content, count)
         except Exception as e:
@@ -1946,7 +1962,13 @@ async def lifespan(app: FastAPI):
         await bot_app.shutdown()
 
 router = APIRouter()
+
+@router.get("/")
+async def root():
+    return {"status": "ok", "message": "Bot is running"}
+
 @router.get("/health")
+@router.head("/health")  # 添加 HEAD 方法支持
 @router.post("/health")
 async def health_check():
     return {
@@ -1955,6 +1977,7 @@ async def health_check():
         "ban_records_count": len(ban_records),
         "google_sheets_connected": bool(GOOGLE_SHEETS_CREDENTIALS)
     }
+
 app = FastAPI(lifespan=lifespan)
 
 # Include your router if you have one
