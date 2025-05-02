@@ -1896,3 +1896,87 @@ class TwitterScraper:
 
 # 替换原来的 NitterMonitor 实例
 nitter_monitor = TwitterScraper()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期管理"""
+    global bot_app, bot_initialized, ban_records
+    
+    try:
+        # 初始化 Telegram Bot
+        bot_app = (
+            ApplicationBuilder()
+            .token(TOKEN)
+            .build()
+        )
+        
+        # 添加命令处理器
+        bot_app.add_handler(CommandHandler("start", start_handler))
+        bot_app.add_handler(CommandHandler("k", kick_handler))
+        bot_app.add_handler(CommandHandler("m", mute_handler))
+        bot_app.add_handler(CommandHandler("um", unmute_handler))
+        bot_app.add_handler(CommandHandler("records", records_handler))
+        bot_app.add_handler(CommandHandler("search", search_handler))
+        bot_app.add_handler(CommandHandler("export", export_handler))
+        bot_app.add_handler(CommandHandler("nitter", nitter_handler))
+        bot_app.add_handler(CommandHandler("twitter", twitter_handler))
+        bot_app.add_handler(CommandHandler("keyword", keyword_reply_handler))
+        bot_app.add_handler(CommandHandler("morning", morning_greeting_handler))
+        bot_app.add_handler(CommandHandler("noon", noon_greeting_handler))
+        bot_app.add_handler(CommandHandler("night", goodnight_greeting_handler))
+        bot_app.add_handler(CommandHandler("comfort", comfort_handler))
+        
+        # 添加回调处理器
+        bot_app.add_handler(CallbackQueryHandler(ban_reason_handler, pattern="^ban_reason"))
+        bot_app.add_handler(CallbackQueryHandler(ban_reason_handler, pattern="^mute_reason"))
+        bot_app.add_handler(CallbackQueryHandler(reply_callback_handler, pattern="^reply:"))
+        
+        # 添加消息处理器
+        bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, auto_reply_handler))
+        bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_reply_flow))
+        
+        # 从 Google Sheet 加载数据
+        ban_records = await GoogleSheetsStorage.load_from_sheet()
+        logger.info(f"Loaded {len(ban_records)} records from Google Sheet")
+        
+        # 启动 bot
+        await bot_app.initialize()
+        await bot_app.start()
+        bot_initialized = True
+        
+        yield
+        
+    except Exception as e:
+        logger.error(f"Error during startup: {e}")
+        raise
+        
+    finally:
+        # 清理资源
+        if bot_app:
+            await bot_app.stop()
+            await bot_app.shutdown()
+        if nitter_monitor:
+            await nitter_monitor.close()
+
+# 创建 FastAPI 应用
+app = FastAPI(lifespan=lifespan)
+
+# 添加 webhook 路由
+@app.post(WEBHOOK_PATH)
+async def telegram_webhook(request: Request):
+    """处理 Telegram webhook 请求"""
+    if not bot_app:
+        raise HTTPException(status_code=500, detail="Bot not initialized")
+        
+    try:
+        data = await request.json()
+        update = Update.de_json(data, bot_app.bot)
+        await bot_app.process_update(update)
+        return {"ok": True}
+    except Exception as e:
+        logger.error(f"Error processing webhook: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
