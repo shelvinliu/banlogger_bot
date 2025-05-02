@@ -264,8 +264,9 @@ async def check_twitter_updates(context: ContextTypes.DEFAULT_TYPE):
         logger.warning("Twitter monitor not initialized - skipping update check")
         return
     
-    chat_id = -100123456789  # 替换为你的群组ID
-    accounts = ["MyStonks_Org", "MyStonksCN"]  # 要监控的账号
+    # 从环境变量获取配置
+    chat_id = int(os.getenv("TWITTER_MONITOR_CHAT_ID", "-100123456789"))
+    accounts = os.getenv("TWITTER_MONITOR_ACCOUNTS", "MyStonks_Org,MyStonksCN").split(",")
     
     for username in accounts:
         try:
@@ -656,8 +657,10 @@ async def noon_greeting_handler(update: Update, context: ContextTypes.DEFAULT_TY
     sent_message = await update.message.reply_text(reply)
     logger.info(f"🌞 向 {user.full_name} 发送了午安问候")
     
-    # 1分钟后自动删除
-    asyncio.create_task(delete_message_later(sent_message, delay=60))
+    # 根据消息长度动态设置删除时间
+    message_length = len(reply)
+    delete_delay = min(120, max(60, message_length // 10))  # 最少60秒，最多120秒
+    asyncio.create_task(delete_message_later(sent_message, delay=delete_delay))
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     
