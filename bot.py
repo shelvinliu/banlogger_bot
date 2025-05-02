@@ -1846,7 +1846,7 @@ async def nitter_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     else:
         await update.message.reply_text("❌ 未知命令，请使用 status/monitor/search/stop")
 
-async def check_nitter_updates():
+async def check_nitter_updates(bot_app: Application):
     try:
         if not nitter_monitor:
             logger.error("NitterMonitor 未初始化")
@@ -1872,7 +1872,7 @@ async def check_nitter_updates():
                 if tweets:
                     for tweet in tweets:
                         message = f"📢 新推文\n\n来自: @{account}\n\n{tweet['text']}\n\n{tweet['url']}"
-                        await bot.send_message(chat_id=chat_id, text=message)
+                        await bot_app.bot.send_message(chat_id=chat_id, text=message)
                         await asyncio.sleep(1)  # 添加延迟避免发送过快
             except Exception as e:
                 logger.error(f"检查账号 {account} 更新失败: {str(e)}")
