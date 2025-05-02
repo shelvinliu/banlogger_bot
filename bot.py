@@ -1679,39 +1679,52 @@ async def comfort_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 class NitterMonitor:
     def __init__(self):
         self.headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
-        self.base_url = "https://nitter.net"  # 可以使用其他 Nitter 实例
-        logger.info("✅ Nitter 监控器已初始化")
+        self.base_url = "https://nitter.net"  # 可以替换为其他 Nitter 实例
+        self.max_retries = 3
+        self.retry_delay = 5  # 重试延迟秒数
 
-    async def get_latest_tweets(self, username: str, count: int = 5) -> List[Dict]:
-        """获取用户的最新推文"""
+    async def _make_request(self, url, retry_count=0):
         try:
-            async with aiohttp.ClientSession() as session:
-                # 使用 Nitter 的 RSS 源
-                rss_url = f"{self.base_url}/{username}/rss"
-                async with session.get(rss_url, headers=self.headers) as response:
+            async with aiohttp.ClientSession(headers=self.headers) as session:
+                async with session.get(url, timeout=30) as response:
                     if response.status == 200:
-                        content = await response.text()
-                        return self._parse_rss(content, count)
-            return []
+                        return await response.text()
+                    elif response.status == 429:  # Too Many Requests
+                        if retry_count < self.max_retries:
+                            await asyncio.sleep(self.retry_delay * (retry_count + 1))
+                            return await self._make_request(url, retry_count + 1)
+                        raise Exception("Rate limit exceeded")
+                    else:
+                        raise Exception(f"HTTP error: {response.status}")
+        except asyncio.TimeoutError:
+            if retry_count < self.max_retries:
+                await asyncio.sleep(self.retry_delay * (retry_count + 1))
+                return await self._make_request(url, retry_count + 1)
+            raise Exception("Request timeout")
         except Exception as e:
-            logger.error(f"获取推文失败: {e}")
+            if retry_count < self.max_retries:
+                await asyncio.sleep(self.retry_delay * (retry_count + 1))
+                return await self._make_request(url, retry_count + 1)
+            raise e
+
+    async def get_latest_tweets(self, username, count=5):
+        try:
+            url = f"{self.base_url}/{username}/rss"
+            content = await self._make_request(url)
+            return self._parse_rss(content, count)
+        except Exception as e:
+            logger.error(f"获取推文失败: {str(e)}")
             return []
 
-    async def search_tweets(self, keyword: str, count: int = 5) -> List[Dict]:
-        """搜索包含关键词的推文"""
+    async def search_tweets(self, keyword, count=5):
         try:
-            async with aiohttp.ClientSession() as session:
-                # 使用 Nitter 的搜索功能
-                search_url = f"{self.base_url}/search?f=tweets&q={keyword}"
-                async with session.get(search_url, headers=self.headers) as response:
-                    if response.status == 200:
-                        content = await response.text()
-                        return self._parse_search_results(content, count)
-            return []
+            url = f"{self.base_url}/search?f=tweets&q={keyword}"
+            content = await self._make_request(url)
+            return self._parse_search_results(content, count)
         except Exception as e:
-            logger.error(f"搜索推文失败: {e}")
+            logger.error(f"搜索推文失败: {str(e)}")
             return []
 
     def _parse_rss(self, content: str, count: int) -> List[Dict]:
@@ -1833,33 +1846,40 @@ async def nitter_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     else:
         await update.message.reply_text("❌ 未知命令，请使用 status/monitor/search/stop")
 
-async def check_nitter_updates(context: ContextTypes.DEFAULT_TYPE):
-    """检查Nitter更新"""
-    global nitter_monitor
-    if not nitter_monitor:
-        logger.warning("Nitter monitor not initialized - skipping update check")
-        return
-    
-    # 从环境变量获取配置
-    chat_id = int(os.getenv("NITTER_MONITOR_CHAT_ID", "-100123456789"))
-    accounts = os.getenv("NITTER_MONITOR_ACCOUNTS", "").split(",")
-    
-    for username in accounts:
-        try:
-            tweets = await nitter_monitor.get_latest_tweets(username)
-            if not tweets:
+async def check_nitter_updates():
+    try:
+        if not nitter_monitor:
+            logger.error("NitterMonitor 未初始化")
+            return
+
+        chat_id = os.getenv('NITTER_MONITOR_CHAT_ID')
+        if not chat_id:
+            logger.error("未设置 NITTER_MONITOR_CHAT_ID")
+            return
+
+        accounts = os.getenv('NITTER_MONITOR_ACCOUNTS', '').split(',')
+        if not accounts:
+            logger.error("未设置要监控的账号")
+            return
+
+        for account in accounts:
+            account = account.strip()
+            if not account:
                 continue
-            
-            for tweet in tweets:
-                message = (
-                    f"🐦 **@{username} 的新推文**\n\n"
-                    f"{tweet['text']}\n\n"
-                    f"🕒 {tweet['created_at'].strftime('%Y-%m-%d %H:%M')}\n"
-                    f"🔗 {tweet['url']}"
-                )
-                await context.bot.send_message(chat_id=chat_id, text=message, parse_mode="Markdown")
-        except Exception as e:
-            logger.error(f"处理Nitter更新时出错: {e}")
+
+            try:
+                tweets = await nitter_monitor.get_latest_tweets(account)
+                if tweets:
+                    for tweet in tweets:
+                        message = f"📢 新推文\n\n来自: @{account}\n\n{tweet['text']}\n\n{tweet['url']}"
+                        await bot.send_message(chat_id=chat_id, text=message)
+                        await asyncio.sleep(1)  # 添加延迟避免发送过快
+            except Exception as e:
+                logger.error(f"检查账号 {account} 更新失败: {str(e)}")
+                continue
+
+    except Exception as e:
+        logger.error(f"检查 Nitter 更新失败: {str(e)}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
