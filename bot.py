@@ -1887,3 +1887,84 @@ async def telegram_webhook(request: Request):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+
+async def nitter_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """处理/nitter命令"""
+    if not await is_admin(update, context):
+        msg = await update.message.reply_text("❌ 只有管理员可以使用此命令")
+        asyncio.create_task(delete_message_later(msg))
+        return
+
+    if not context.args:
+        help_text = (
+            "🐦 Twitter 监控命令:\n\n"
+            "/nitter status - 查看监控状态\n"
+            "/nitter monitor <用户名> - 监控指定用户的推文\n"
+            "/nitter search <关键词> - 搜索包含关键词的推文\n"
+            "/nitter stop - 停止所有监控\n"
+        )
+        await update.message.reply_text(help_text)
+        return
+
+    command = context.args[0].lower()
+    global nitter_monitor
+
+    if command == "status":
+        if not nitter_monitor:
+            await update.message.reply_text("❌ Twitter监控未初始化")
+            return
+        await update.message.reply_text("✅ Twitter监控运行正常")
+
+    elif command == "monitor":
+        if len(context.args) < 2:
+            await update.message.reply_text("❌ 请提供要监控的用户名")
+            return
+
+        username = context.args[1]
+        try:
+            tweets = await nitter_monitor.get_latest_tweets(username)
+            if tweets:
+                message = f"✅ 成功获取@{username}的最新推文:\n\n"
+                for tweet in tweets:
+                    message += (
+                        f"📝 {tweet['text']}\n"
+                        f"🕒 {tweet['created_at'].strftime('%Y-%m-%d %H:%M')}\n"
+                        f"🔗 {tweet['url']}\n\n"
+                    )
+            else:
+                message = f"❌ 未找到@{username}的推文"
+            await update.message.reply_text(message)
+        except Exception as e:
+            await update.message.reply_text(f"❌ 获取推文失败: {str(e)}")
+
+    elif command == "search":
+        if len(context.args) < 2:
+            await update.message.reply_text("❌ 请提供要搜索的关键词")
+            return
+
+        keyword = " ".join(context.args[1:])
+        try:
+            tweets = await nitter_monitor.search_tweets(keyword)
+            if tweets:
+                message = f"✅ 找到包含'{keyword}'的推文:\n\n"
+                for tweet in tweets:
+                    message += (
+                        f"📝 {tweet['text']}\n"
+                        f"👤 @{tweet['author']}\n"
+                        f"🕒 {tweet['created_at'].strftime('%Y-%m-%d %H:%M')}\n"
+                        f"🔗 {tweet['url']}\n\n"
+                    )
+            else:
+                message = f"❌ 未找到包含'{keyword}'的推文"
+            await update.message.reply_text(message)
+        except Exception as e:
+            await update.message.reply_text(f"❌ 搜索推文失败: {str(e)}")
+
+    elif command == "stop":
+        if not nitter_monitor:
+            await update.message.reply_text("❌ Twitter监控未初始化")
+            return
+        await update.message.reply_text("✅ Twitter监控已停止")
+
+    else:
+        await update.message.reply_text("❌ 未知命令，请使用 status/monitor/search/stop")
