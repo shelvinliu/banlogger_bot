@@ -64,27 +64,11 @@ class TwitterMonitor:
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         }
-        # Initialize Twitter API client if credentials are available
-        if all([TWITTER_API_KEY, TWITTER_API_SECRET_KEY, TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_TOKEN_SECRET]):
-            try:
-                # Initialize the client with OAuth 1.0a authentication
-                self.client = tweepy.Client(
-                    consumer_key=TWITTER_API_KEY,
-                    consumer_secret=TWITTER_API_SECRET_KEY,
-                    access_token=TWITTER_ACCESS_TOKEN,
-                    access_token_secret=TWITTER_ACCESS_TOKEN_SECRET,
-                    wait_on_rate_limit=True
-                )
-                
-                # Test the connection
-                self.client.get_me()
-                print("✅ Twitter API 客户端初始化完成")
-            except Exception as e:
-                print(f"❌ Twitter API 客户端初始化失败: {e}")
-                self.client = None
-        else:
-            self.client = None
-            print("⚠️ Twitter API 凭据未配置，将使用备用API")
+        # Initialize the client with bearer token authentication
+        self.client = tweepy.Client(
+            bearer_token="AAAAAAAAAAAAAAAAAAAAACzm0wEAAAAA3GO2/HmBJ1lwr05CGt58SHxQdGw=FsomP2iBfhMhrTGMkszgOxFjpE0Ef7Yue6z5OWbpb6JcqODJt6",
+            wait_on_rate_limit=True
+        )
 
     async def get_latest_tweets(self, username: str, since_minutes: int = 5) -> List[Dict]:
         try:
@@ -807,10 +791,10 @@ async def morning_greeting_handler(update: Update, context: ContextTypes.DEFAULT
     f"🎠 {user.first_name}早上好！迪士尼在逃公主/王子上线~",
     f"🍓 {user.first_name}早安！甜心狙击手准备就绪！",
     f"🛸 {user.first_name}早上好！外星系偷跑的萌物被我们发现啦~",
-    f"🎪 {user.first_name}早安！马戏团最抢手的明星演员来咯~",
-    f"🎆 {user.first_name}早安！烟花秀主火炬手已就位~",
+    f"🎪 {user.first_name}早上好！马戏团最抢手的明星演员来咯~",
+    f"🎆 {user.first_name}早上好！烟花秀主火炬手已就位~",
     f"🧿 {user.first_name}早上好！锦鲤本鲤开始散发好运~",
-    f"🎨 {user.first_name}早安！梵高看了都点赞的艺术品醒啦~",
+    f"🎨 {user.first_name}早上好！梵高看了都点赞的艺术品醒啦~",
     f"🍩 {user.first_name}早上好！甜甜圈中间的糖霜来咯~",
     f"🎯 {user.first_name}早上好！丘比特之箭准备发射~",
     f"🎻 {user.first_name}早上好！我的耳朵说想听你说话~",
@@ -885,9 +869,9 @@ async def morning_greeting_handler(update: Update, context: ContextTypes.DEFAULT
     f"🛠️ {user.first_name}早上好！生活需要主动创造~",
     f"⏳ {user.first_name}早安！时间会奖励坚持的人~",
     f"📚 {user.first_name}早上好！知识是最忠实的伙伴~",
-    f"🌳 {user.first_name}早安！扎根的日子终会开花~",
+    f"🌳 {user.first_name}早上好！扎根的日子终会开花~",
     f"🦋 {user.first_name}早上好！蜕变需要耐心等待~",
-    f"🧲 {user.first_name}早安！正能量吸引更多美好~",
+    f"🧲 {user.first_name}早上好！正能量吸引更多美好~",
     f"⚡ {user.first_name}早上好！突破舒适区的感觉超棒~",
     f"🌠 {user.first_name}早安！许下的愿望正在路上~",
     f"🛫 {user.first_name}早上好！准备好迎接新旅程~",
@@ -962,7 +946,7 @@ async def morning_greeting_handler(update: Update, context: ContextTypes.DEFAULT
     f"📜 {user.first_name}早安！每个选择都是伏笔~",
     f"🪔 {user.first_name}早上好！智慧之光永不灭~",
     f"🌲 {user.first_name}早安！森林知道所有答案~",
-    f"🛶 {user.first_name}早上好！掌舵自己的人生~",
+    f"🛶 {user.first_name}早安！掌舵自己的人生~",
     f"🎎 {user.first_name}早安！缘分是奇妙的礼物~",
     f"🌅 {user.first_name}早上好！日出是希望的象征~",
 
@@ -977,15 +961,15 @@ async def morning_greeting_handler(update: Update, context: ContextTypes.DEFAULT
     f"🚰 {user.first_name}早上好！清水也是恩赐~",
     f"🌞 {user.first_name}早安！感谢阳光免费照耀~",
     f"🌳 {user.first_name}早上好！向大树学习奉献~",
-    f"📱 {user.first_name}早安！科技让爱零距离~",
+    f"📱 {user.first_name}早上好！科技让爱零距离~",
     f"🍞 {user.first_name}早上好！面包背后有无数双手~",
-    f"👣 {user.first_name}早安！感谢双脚带你看世界~",
+    f"👣 {user.first_name}早上好！感谢双脚带你看世界~",
     f"👀 {user.first_name}早上好！眼睛让你看见美好~",
-    f"🌧️ {user.first_name}早安！雨水滋润万物生长~",
+    f"🌧️ {user.first_name}早上好！雨水滋润万物生长~",
     f"🍎 {user.first_name}早上好！苹果里有整个宇宙~",
-    f"🚌 {user.first_name}早安！感恩平安的出行~",
+    f"🚌 {user.first_name}早上好！感恩平安的出行~",
     f"📚 {user.first_name}早上好！知识是前人馈赠~",
-    f"🛒 {user.first_name}早安！丰盛物资值得珍惜~",
+    f"🛒 {user.first_name}早上好！丰盛物资值得珍惜~",
     f"💐 {user.first_name}早上好！花朵无私绽放美丽~",
     f"🐦 {user.first_name}早安！鸟鸣是自然闹钟~",
     f"☕ {user.first_name}早上好！咖啡香里有故事~",
@@ -1073,197 +1057,6 @@ async def morning_greeting_handler(update: Update, context: ContextTypes.DEFAULT
         reply += "\n\n🎁 彩蛋：你是今天第{}个说早安的天使~".format(random.randint(1,100))
     sent_message = await update.message.reply_text(reply)  # Store the sent message
     logger.info(f"🌅 向 {user.full_name} 发送了早安问候")
-    asyncio.create_task(delete_message_later(sent_message, delay=60))
-COMFORT_MESSAGES = [
-    "🌧️ 市场下雨了，但别忘了雨后总有彩虹~",
-    "📉 短期波动而已，咱们长期主义者笑看风云",
-    "💎 钻石手们，握紧你们的筹码！",
-    "🐋 大户跑了正好，咱们捡便宜筹码的机会来了",
-    "🛌 跌了就睡会，醒来又是新行情",
-    "🍃 风会停，雨会住，市场总会回暖",
-    "🧘 深呼吸，价格波动只是市场的呼吸节奏",
-    "🦉 聪明人都在悄悄加仓呢",
-    "📚 历史告诉我们，每次大跌都是财富再分配的机会",
-    "🌊 潮起潮落很正常，咱们冲浪手不怕浪",
-    "🛡️ 真正的战士经得起市场考验",
-    "🍵 淡定喝茶，这点波动不算啥",
-    "🎢 坐过山车就要享受刺激过程",
-    "🕰️ 时间会奖励耐心的人",
-    "🧩 市场拼图少了一块？很快会补上的",
-    "🌱 跌下去的都在扎根，为了跳得更高",
-    "🎯 目标不变，策略微调，继续前进",
-    "🚣 划船不用桨，全靠浪~现在浪来了",
-    "🛒 打折促销啦！聪明买家该出手了",
-    "📉📈 没有只跌不涨的市场",
-    "💪 考验信仰的时候到了",
-    "🔄 周期循环，下一站是上涨",
-    "🧲 价值终会吸引价格回归",
-    "🏗️ 下跌是更好的建仓机会",
-    "🎮 游戏难度调高了，但通关奖励更丰厚",
-    "🤲 空头抛售，我们接盘，谁更聪明？",
-    "🌌 黑夜再长，黎明终会到来",
-    "🛎️ 市场闹钟响了，该关注机会了",
-    "🧠 情绪化的人恐慌，理性的人布局",
-    "🪂 降落是为了更好的起飞",
-    "🎲 短期是投票机，长期是称重机",
-    "🦚 孔雀开屏前要先收拢羽毛",
-    "⚖️ 市场终会回归价值平衡",
-    "🏔️ 攀登前总要下到山谷",
-    "🔮 水晶球显示：未来会涨回来",
-    "🧵 行情像弹簧，压得越狠弹得越高",
-    "🎻 市场交响乐也有慢板乐章",
-    "🛸 外星人砸盘？正好接点外星筹码",
-    "🏆 冠军都是在逆境中练就的",
-    "🌪️ 风暴中心最平静，保持冷静",
-    "🕵️‍♂️ 价值投资者正在悄悄扫货",
-    "🎢 过山车下坡才刺激，上坡在后面",
-    "🧗 回调是为了更好的突破前高",
-    "🛌 装死策略启动，躺平等反弹",
-    "🎯 目标价没变，只是路线曲折了点",
-    "🧘‍♂️ 禅定时刻：市场噪音过滤中",
-    "🦸 英雄都是在危机中诞生的",
-    "🌄 最美的日出前是最暗的夜",
-    "🎻 这是市场的休止符，不是终止符",
-    "🛡️ 你的止损线设好了吗？没设就不用慌",
-    "🧂 这点波动，洒洒水啦~"
-]
-
-# 在命令处理部分添加
-async def comfort_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """处理/comfort安慰指令"""
-    try:
-        # 随机选择3条不同的安慰语
-        selected = random.sample(COMFORT_MESSAGES, min(3, len(COMFORT_MESSAGES)))
-        reply = "💖 市场下跌安慰包 💖\n\n" + "\n\n".join(selected)
-        reply += "\n\n✨ 记住：市场周期往复，保持良好心态最重要"
-        
-        await update.message.reply_text(reply)
-        logger.info(f"发送安慰消息给 {update.effective_user.full_name}")
-        asyncio.create_task(delete_message_later(sent_message, delay=60))
-
-    except Exception as e:
-        logger.error(f"发送安慰消息失败: {e}")
-        await update.message.reply_text("😔 安慰服务暂时不可用，先抱抱~")
-async def twitter_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Get Twitter updates"""
-    global twitter_monitor
-    if not twitter_monitor:
-        await update.message.reply_text("❌ Twitter功能未启用，请检查配置")
-        return
-    
-    if not context.args:
-        await update.message.reply_text("用法: /twitter <用户名> 或 /twitter search <关键词>")
-        return
-    
-    if context.args[0] == "search":
-        keyword = " ".join(context.args[1:])
-        tweets = twitter_monitor.monitor_keyword(keyword)
-        if not tweets:
-            await update.message.reply_text("未找到相关推文")
-            return
-        response = "🔍 最新相关推文:\n\n" + "\n\n".join(
-            f"{tweet['text']}\n👍 {tweet['likes']} | 🔁 {tweet['retweets']}\n🔗 {tweet['url']}"
-            for tweet in tweets
-        )
-    else:
-        username = context.args[0]
-        tweets = await twitter_monitor.get_latest_tweets(username)
-        if not tweets:
-            await update.message.reply_text(f"未找到 @{username} 的推文")
-            return
-        response = f"🐦 @{username} 的最新推文:\n\n" + "\n\n".join(
-            f"{tweet['text']}\n🕒 {tweet['created_at']}\n👍 {tweet['likes']} | 🔁 {tweet['retweets']}\n🔗 {tweet['url']}"
-            for tweet in tweets
-        )
-    
-    await update.message.reply_text(response[:4000])  # Telegram message limit
-async def goodnight_greeting_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    greetings = [
-        # 温馨祝福系列
-        f"🌙 {user.first_name}晚安，愿你今夜好梦~",
-        f"✨ {user.first_name}晚安，星星会守护你的梦境",
-        f"🛌 {user.first_name}晚安，被子已经帮你暖好啦",
-        f"🌜 {user.first_name}晚安，月亮说它会陪你到天亮",
-        f"💤 {user.first_name}晚安，充电时间到！明天满血复活~",
-        f"🦉 {user.first_name}晚安，猫头鹰会替你站岗的",
-        f"🌠 {user.first_name}晚安，流星会实现你梦中的愿望",
-        f"🧸 {user.first_name}晚安，抱紧你的小熊做个甜梦吧",
-        f"🍃 {user.first_name}晚安，晚风会为你唱摇篮曲",
-        f"🌌 {user.first_name}晚安，银河已为你铺好梦境之路",
-        # 可爱幽默系列
-        f"🐑 {user.first_name}晚安，快去数羊吧！1只羊...2只羊...zzz",
-        f"🦇 {user.first_name}晚安，蝙蝠侠说你该睡觉了",
-        f"🍵 {user.first_name}晚安，睡前记得喝杯热牛奶哦",
-        f"📚 {user.first_name}晚安，明天再看更多精彩故事~",
-        f"🎮 {user.first_name}晚安，游戏角色也需要休息啦",
-        f"🐱 {user.first_name}晚安，猫咪已经在你床上占好位置了",
-        f"🌛 {user.first_name}晚安，月亮姐姐给你盖被子啦",
-        f"🛏️ {user.first_name}晚安，床说它想你了",
-        f"🧦 {user.first_name}晚安，记得把袜子挂在床边（说不定有惊喜）",
-        f"🦄 {user.first_name}晚安，独角兽会带你去梦幻仙境",
-        
-        # 诗意浪漫系列
-        f"🌹 {user.first_name}晚安，让玫瑰的芬芳伴你入眠",
-        f"🎶 {user.first_name}晚安，让夜曲轻抚你的梦境",
-        f"🖼️ {user.first_name}晚安，今晚的梦会是幅什么画呢？",
-        f"📝 {user.first_name}晚安，把今天的烦恼折成纸飞机放飞吧",
-        f"🍂 {user.first_name}晚安，落叶会为你铺就柔软的梦乡",
-        f"🕯️ {user.first_name}晚安，烛光会守护你到黎明",
-        f"🎻 {user.first_name}晚安，让月光小夜曲伴你入睡",
-        f"🌉 {user.first_name}晚安，梦境之桥已为你架好",
-        f"📖 {user.first_name}晚安，今天的故事就翻到这一页",
-        f"🪔 {user.first_name}晚安，愿你的梦境如灯火般温暖",
-        
-        # 特别彩蛋系列
-        f"🎁 {user.first_name}晚安！你是今天第{random.randint(1,100)}个说晚安的天使~",
-        f"🔮 {user.first_name}晚安！水晶球显示你明天会有好运！",
-        f"🧙 {user.first_name}晚安！魔法师已经为你的梦境施了快乐咒语",
-        f"🏰 {user.first_name}晚安！城堡里的公主/王子该就寝啦",
-        f"🚀 {user.first_name}晚安！梦境飞船即将发射~",
-        f"🌙 {user.first_name}晚安，愿星光轻轻吻你的梦境~",
-        f"🛏️ {user.first_name}今晚睡个好觉，是对明天最好的投资~",
-        f"🌠 {user.first_name}晚安，流星已替你藏好所有烦恼~",
-        f"🛌 {user.first_name}钻进被窝吧，今天辛苦了~",
-        f"🌜 {user.first_name}月亮开始值班了，放心入睡吧~",
-        f"💤 {user.first_name}晚安，枕头已充满好梦能量~",
-        f"🪔 {user.first_name}夜灯温柔，祝你一夜安眠~",
-        f"🌃 {user.first_name}城市入睡时，你的梦要开始冒险啦~",
-        f"🛋️ {user.first_name}卸下疲惫，沙发为你记着今天的努力~",
-        f"📖 {user.first_name}晚安，今日故事存档完毕~",
-        f"🌉 {user.first_name}晚安，桥梁都亮起温柔的引路灯~",
-        f"🌙 {user.first_name}被子魔法启动，三秒入睡倒计时~",
-        f"🛁 {user.first_name}洗去尘埃，换上星星织的睡衣吧~",
-        f"🌛 {user.first_name}晚安，月亮会守护你的窗台~",
-        f"🪟 {user.first_name}窗帘拉好，梦境快递正在派送~",
-        f"🌌 {user.first_name}银河铺好绒毯，等你来遨游~",
-        f"🛏️ {user.first_name}床已暖好，请查收今日份安心~",
-        f"🌠 {user.first_name}晚安，所有星星都在对你眨眼睛~",
-        f"🛋️ {user.first_name}辛苦一天的身体该充电啦~",
-        f"🌉 {user.first_name}晚安，江面倒映着为你准备的星光~",
-        f"🌙 {user.first_name}闭上眼睛，宇宙开始播放专属梦境~",
-        f"🛌 {user.first_name}晚安，羽绒云朵已装满你的被窝~",
-        f"🌜 {user.first_name}月亮船来接你去童话世界啦~",
-        f"💤 {user.first_name}睡眠金币已存入，明天利息是活力~",
-        f"🪔 {user.first_name}床头小灯，像不像守夜的萤火虫？",
-        f"🌃 {user.first_name}晚安，霓虹都调成助眠模式了~",
-        f"🛋️ {user.first_name}今日剧情播放完毕，请休息~",
-        f"🌉 {user.first_name}晚安，跨江大桥变成摇篮曲五线谱~",
-        f"🌙 {user.first_name}睫毛落下时，会有天使来盖章~",
-        f"🛏️ {user.first_name}床是成年人的游乐场，去玩吧~",
-        f"🌠 {user.first_name}晚安，所有噩梦已转交给奥特曼~",
-    ]
-    
-    # 随机选择一条问候语
-    reply = random.choice(greetings)
-    
-    # 10%概率附加特别彩蛋
-    if random.random() < 0.1:
-        emojis = ["✨", "🌟", "🎉", "💫", "🎊"]
-        reply += f"\n\n{random.choice(emojis)} 彩蛋：你是今天第{random.randint(1,100)}个获得晚安祝福的幸运儿~"
-    
-    sent_message=await update.message.reply_text(reply)
-    logger.info(f"🌃 向 {user.full_name} 发送了晚安问候")
     asyncio.create_task(delete_message_later(sent_message, delay=60))
 
 async def unmute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
