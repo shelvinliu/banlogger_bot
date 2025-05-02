@@ -637,22 +637,51 @@ async def noon_greeting_handler(update: Update, context: ContextTypes.DEFAULT_TY
     asyncio.create_task(delete_message_later(sent_message, delay=300))  # 改为5分钟
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    
     """处理/start命令"""
     user = update.effective_user
-    help_text = (
-        "👮 封禁管理机器人使用说明:\n\n"
-        "/k - 踢出用户(回复消息使用)\n"
-        "/m - 禁言用户(回复消息并指定时间)\n"
-        "/um - 解除禁言\n"
-        "/records - 查看封禁记录\n"
-        "/search <关键词> - 搜索封禁记录\n"
-        "/export - 导出封禁记录为Excel文件\n\n"
-        "请确保机器人有管理员权限!"
+    chat = update.effective_chat
+    
+    # 获取当前时间
+    current_time = datetime.now(TIMEZONE)
+    hour = current_time.hour
+    
+    # 根据时间选择问候语
+    if 5 <= hour < 12:
+        greeting = "🌅 早安"
+    elif 12 <= hour < 18:
+        greeting = "☀️ 午安"
+    else:
+        greeting = "🌙 晚安"
+    
+    # 构建欢迎消息
+    welcome_message = (
+        f"{greeting}，{user.full_name if user else '朋友'}！\n\n"
+        "🤖 我是封禁管理机器人，可以帮助你管理群组。\n\n"
+        "📋 主要功能：\n"
+        "├─ 👮 封禁管理\n"
+        "│  ├─ /k - 踢出用户（回复消息使用）\n"
+        "│  ├─ /m - 禁言用户（回复消息并指定时间）\n"
+        "│  └─ /um - 解除禁言\n\n"
+        "├─ 📊 记录管理\n"
+        "│  ├─ /records - 查看封禁记录\n"
+        "│  ├─ /search <关键词> - 搜索封禁记录\n"
+        "│  └─ /export - 导出封禁记录\n\n"
+        "├─ 🐦 Twitter监控\n"
+        "│  ├─ /twitter status - 查看监控状态\n"
+        "│  ├─ /twitter monitor <用户名> - 监控用户\n"
+        "│  ├─ /twitter keyword <关键词> - 监控关键词\n"
+        "│  └─ /twitter stop - 停止监控\n\n"
+        "└─ 📝 关键词回复\n"
+        "   └─ /reply - 管理关键词自动回复\n\n"
+        "⚠️ 注意：\n"
+        "• 请确保机器人有管理员权限\n"
+        "• 部分功能仅管理员可用\n"
+        "• 使用前请仔细阅读命令说明"
     )
     
-    await update.message.reply_text(help_text)
-    logger.info(f"新用户启动: {user.full_name if user else 'Unknown'}")
+    # 发送欢迎消息
+    await update.message.reply_text(welcome_message)
+    logger.info(f"新用户启动: {user.full_name if user else 'Unknown'} (ID: {user.id if user else 'Unknown'})")
 
 async def kick_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """处理/kick命令"""
