@@ -1515,6 +1515,47 @@ async def goodnight_greeting_handler(update: Update, context: ContextTypes.DEFAU
     # 1分钟后自动删除
     asyncio.create_task(delete_message_later(sent_message, delay=60))
 
+async def comfort_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理安慰命令"""
+    user = update.effective_user
+    COMFORT_MESSAGES = [
+        # 温暖系列
+        f"🤗 {user.first_name}，抱抱你~ 一切都会好起来的",
+        f"💖 {user.first_name}，你并不孤单，我在这里陪着你",
+        f"✨ {user.first_name}，风雨过后总会有彩虹",
+        f"🌱 {user.first_name}，每个低谷都是新的开始",
+        
+        # 鼓励系列
+        f"💪 {user.first_name}，你比想象中更坚强",
+        f"🌟 {user.first_name}，困难只是暂时的，你一定能克服",
+        f"🌻 {user.first_name}，像向日葵一样，永远面向阳光",
+        f"🌈 {user.first_name}，生活就像彩虹，需要经历风雨才能看到美丽",
+        
+        # 治愈系列
+        f"🫂 {user.first_name}，给你一个温暖的拥抱",
+        f"🌙 {user.first_name}，让烦恼随月光消散",
+        f"🌊 {user.first_name}，让心情像海浪一样平静",
+        f"🌿 {user.first_name}，深呼吸，放松心情",
+        
+        # 特别彩蛋
+        f"🎁 {user.first_name}，送你一份勇气大礼包：{random.choice(['坚持','希望','勇气','信心'])}",
+        f"✨ {user.first_name}，你是第{random.randint(1,100)}个需要安慰的小可爱，但你是最特别的"
+    ]
+    
+    # 随机选择一条安慰语
+    reply = random.choice(COMFORT_MESSAGES)
+    
+    # 10%概率附加彩蛋
+    if random.random() < 0.1:
+        emojis = ["✨", "🌟", "💫", "🎁", "💝"]
+        reply += f"\n\n{random.choice(emojis)} 彩蛋：你是今天第{random.randint(1,100)}个需要安慰的小可爱~"
+    
+    sent_message = await update.message.reply_text(reply)
+    logger.info(f"🤗 向 {user.full_name} 发送了安慰消息")
+    
+    # 1分钟后自动删除
+    asyncio.create_task(delete_message_later(sent_message, delay=60))
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global bot_app, bot_initialized, ban_records, twitter_monitor
