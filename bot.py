@@ -205,39 +205,12 @@ class TwitterMonitor:
             raise
 
     async def get_latest_tweets(self, username: str, since_minutes: int = 5) -> List[Dict]:
+        """获取用户的最新推文"""
         try:
-            # First try using official API if available
-            if self.client:
-                try:
-                    # Get user ID first
-                    user = self.client.get_user(username=username)
-                    if not user.data:
-                        raise Exception("User not found")
-                    
-                    # Get user's tweets
-                    tweets = self.client.get_users_tweets(
-                        user.data.id,
-                        max_results=5,
-                        tweet_fields=['created_at', 'public_metrics', 'author_id'],
-                        user_fields=['username']
-                    )
-                    
-                    if not tweets.data:
-                        return []
-                    
-                    return [{
-                        "text": tweet.text,
-                        "created_at": tweet.created_at,
-                        "likes": tweet.public_metrics['like_count'],
-                        "retweets": tweet.public_metrics['retweet_count'],
-                        "url": f"https://twitter.com/{username}/status/{tweet.id}"
-                    } for tweet in tweets.data]
-                except Exception as e:
-                    print(f"Twitter API 调用失败，切换到备用API: {e}")
-            
-            # Fallback to vxtwitter API
-            api_url = f"https://api.vxtwitter.com/{username}/status"
+            # 使用异步HTTP客户端
             async with aiohttp.ClientSession() as session:
+                # 使用vxtwitter API作为备用方案
+                api_url = f"https://api.vxtwitter.com/{username}/status"
                 async with session.get(api_url, headers=self.headers) as response:
                     if response.status == 200:
                         data = await response.json()
@@ -252,64 +225,61 @@ class TwitterMonitor:
                             }]
             return []
         except Exception as e:
-            print(f"❌ 获取推文失败: {e}")
+            logger.error(f"获取推文失败: {e}")
             return []
 
-    def monitor_keyword(self, keyword: str, count: int = 5) -> List[Dict]:
+    async def monitor_keyword(self, keyword: str, count: int = 5) -> List[Dict]:
         """监控某个关键词的最新推文"""
         try:
-            if not self.client:
-                raise Exception("Twitter API client not initialized")
-                
-            tweets = self.client.search_recent_tweets(
-                query=keyword,
-                max_results=count,
-                tweet_fields=["created_at", "public_metrics", "author_id"],
-                user_fields=['username']
-            )
-            
-            if not tweets.data:
-                return []
-                
-            return [
-                {
-                    "text": tweet.text,
-                    "author": tweet.author_id,
-                    "created_at": tweet.created_at,
-                    "likes": tweet.public_metrics["like_count"],
-                    "retweets": tweet.public_metrics["retweet_count"],
-                    "url": f"https://twitter.com/user/status/{tweet.id}"
-                }
-                for tweet in tweets.data
-            ]
+            # 使用异步HTTP客户端
+            async with aiohttp.ClientSession() as session:
+                # 使用vxtwitter API作为备用方案
+                api_url = f"https://api.vxtwitter.com/search?q={keyword}&count={count}"
+                async with session.get(api_url, headers=self.headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        tweets = data.get('tweets', [])
+                        return [{
+                            "text": tweet['text'],
+                            "author": tweet['author'],
+                            "created_at": datetime.strptime(tweet['date'], "%Y-%m-%dT%H:%M:%S+00:00"),
+                            "likes": tweet['likes'],
+                            "retweets": tweet['retweets'],
+                            "url": tweet['tweetURL']
+                        } for tweet in tweets]
+            return []
         except Exception as e:
             logger.error(f"监控 Twitter 关键词失败: {e}")
             return []
 
 async def check_twitter_updates(context: ContextTypes.DEFAULT_TYPE):
-    """Check for Twitter updates periodically"""
+    """检查Twitter更新"""
     global twitter_monitor
     if not twitter_monitor:
         logger.warning("Twitter monitor not initialized - skipping update check")
         return
     
-    chat_id = -100123456789  # Replace with your group ID
-    accounts = ["MyStonks_Org", "MyStonksCN"]  # Accounts to monitor
+    chat_id = -100123456789  # 替换为你的群组ID
+    accounts = ["MyStonks_Org", "MyStonksCN"]  # 要监控的账号
     
     for username in accounts:
-        tweets = await twitter_monitor.get_latest_tweets(username)
-        if not tweets:
-            continue
-        
-        for tweet in tweets:
-            message = (
-                f"🐦 **@{username} 的新推文**\n\n"
-                f"{tweet['text']}\n\n"
-                f"🕒 {tweet['created_at'].strftime('%Y-%m-%d %H:%M')}\n"
-                f"👍 {tweet['likes']} | 🔁 {tweet['retweets']}\n"
-                f"🔗 {tweet['url']}"
-            )
-            await context.bot.send_message(chat_id=chat_id, text=message, parse_mode="Markdown")
+        try:
+            tweets = await twitter_monitor.get_latest_tweets(username)
+            if not tweets:
+                continue
+            
+            for tweet in tweets:
+                message = (
+                    f"🐦 **@{username} 的新推文**\n\n"
+                    f"{tweet['text']}\n\n"
+                    f"🕒 {tweet['created_at'].strftime('%Y-%m-%d %H:%M')}\n"
+                    f"👍 {tweet['likes']} | 🔁 {tweet['retweets']}\n"
+                    f"🔗 {tweet['url']}"
+                )
+                await context.bot.send_message(chat_id=chat_id, text=message, parse_mode="Markdown")
+        except Exception as e:
+            logger.error(f"处理Twitter更新时出错: {e}")
+
 class GoogleSheetsStorage:
     _last_request_time = 0
     
