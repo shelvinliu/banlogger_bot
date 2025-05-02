@@ -1895,23 +1895,18 @@ class TwitterScraper:
         if self.monitoring_task is not None:
             return
             
-        # 获取机器人所在的所有群组
-        try:
-            updates = await bot_app.bot.get_updates()
-            for update in updates:
-                if update.message and update.message.chat.type in ['group', 'supergroup']:
-                    self.group_chats.add(update.message.chat.id)
-            
-            if not self.group_chats:
-                self.logger.warning("机器人未加入任何群组，无法发送推文通知")
-                return
-                
-            self.logger.info(f"机器人已加入 {len(self.group_chats)} 个群组")
-        except Exception as e:
-            self.logger.error(f"获取群组信息失败: {e}")
-            return
-            
+        # 初始化时不需要获取群组信息，而是在收到消息时动态添加
         self.monitoring_task = asyncio.create_task(self._monitor_tweets(bot_app))
+        
+    async def add_group_chat(self, chat_id: int):
+        """添加群组到监控列表"""
+        self.group_chats.add(chat_id)
+        self.logger.info(f"Added group chat {chat_id} to monitoring list")
+        
+    async def remove_group_chat(self, chat_id: int):
+        """从监控列表中移除群组"""
+        self.group_chats.discard(chat_id)
+        self.logger.info(f"Removed group chat {chat_id} from monitoring list")
         
     async def stop_monitoring(self):
         """停止监控"""
@@ -1951,7 +1946,7 @@ class TwitterScraper:
                                     except Exception as e:
                                         self.logger.error(f"向群组 {chat_id} 发送推文通知失败: {e}")
                                         # 如果发送失败，可能是机器人被移出群组，从列表中移除
-                                        self.group_chats.discard(chat_id)
+                                        await self.remove_group_chat(chat_id)
                                 
                                 # 更新最后一条推文ID
                                 self.monitored_accounts[username]['last_tweet_id'] = latest_tweet['url'].split('/')[-1]
@@ -1974,6 +1969,10 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理所有消息"""
     if not update.message or not update.message.text:
         return
+        
+    # 如果是群组消息，添加到监控列表
+    if update.message.chat.type in ['group', 'supergroup']:
+        await nitter_monitor.add_group_chat(update.message.chat.id)
         
     text = update.message.text.lower()
     
