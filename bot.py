@@ -73,6 +73,15 @@ class GoogleSheetsStorage:
             # 尝试打开或创建关键词回复表
             try:
                 self.reply_sheet = self.client.open(KEYWORD_REPLIES_SHEET).sheet1
+                # 检查是否有表头
+                headers = self.reply_sheet.row_values(1)
+                if not headers or len(headers) < 4:
+                    # 如果表头不存在或不完整，添加表头
+                    self.reply_sheet.clear()
+                    self.reply_sheet.append_row([
+                        "关键词", "回复内容", "链接", "链接文本"
+                    ])
+                    logger.info("添加关键词回复表表头")
             except gspread.exceptions.SpreadsheetNotFound:
                 # 如果表不存在，创建新表
                 spreadsheet = self.client.create(KEYWORD_REPLIES_SHEET)
