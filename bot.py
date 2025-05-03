@@ -1477,6 +1477,8 @@ async def lifespan(app: FastAPI):
         await bot_app.start()
         bot_initialized = True
         
+        yield
+        
     except Exception as e:
         logger.error(f"Error during startup: {e}")
         raise
