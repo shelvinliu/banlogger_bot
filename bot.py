@@ -55,9 +55,34 @@ class GoogleSheetsStorage:
             # 创建客户端
             self.client = gspread.authorize(self.credentials)
             
-            # 打开工作表
-            self.ban_sheet = self.client.open(BAN_RECORDS_SHEET).sheet1
-            self.reply_sheet = self.client.open(KEYWORD_REPLIES_SHEET).sheet1
+            # 尝试打开或创建封禁记录表
+            try:
+                self.ban_sheet = self.client.open(BAN_RECORDS_SHEET).sheet1
+            except gspread.exceptions.SpreadsheetNotFound:
+                # 如果表不存在，创建新表
+                spreadsheet = self.client.create(BAN_RECORDS_SHEET)
+                self.ban_sheet = spreadsheet.sheet1
+                # 添加表头
+                self.ban_sheet.append_row([
+                    "操作时间", "电报群组名称", "用户ID", 
+                    "用户名", "名称", "操作管理", 
+                    "理由", "操作"
+                ])
+                logger.info(f"创建新的封禁记录表: {BAN_RECORDS_SHEET}")
+            
+            # 尝试打开或创建关键词回复表
+            try:
+                self.reply_sheet = self.client.open(KEYWORD_REPLIES_SHEET).sheet1
+            except gspread.exceptions.SpreadsheetNotFound:
+                # 如果表不存在，创建新表
+                spreadsheet = self.client.create(KEYWORD_REPLIES_SHEET)
+                self.reply_sheet = spreadsheet.sheet1
+                # 添加表头
+                self.reply_sheet.append_row([
+                    "关键词", "回复内容", "链接", "链接文本"
+                ])
+                logger.info(f"创建新的关键词回复表: {KEYWORD_REPLIES_SHEET}")
+            
             self.initialized = True
             logger.info("Google Sheets 客户端初始化成功")
             
@@ -177,7 +202,7 @@ class GoogleSheetsStorage:
 # 配置
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GOOGLE_SHEETS_CREDENTIALS = os.getenv("GOOGLE_SHEETS_CREDENTIALS")  # Base64编码的JSON凭证
-BAN_RECORDS_SHEET = os.getenv("BAN_RECORDS_SHEET", "BanRecords")    # 封禁记录表名
+BAN_RECORDS_SHEET = os.getenv("BAN_RECORDS_SHEET", "Ban&Mute Records")    # 封禁记录表名
 KEYWORD_REPLIES_SHEET = os.getenv("KEYWORD_REPLIES_SHEET", "KeywordReplies")  # 关键词回复表名
 WEBHOOK_PATH = "/telegram"
 WEBHOOK_URL = f"{os.getenv('RENDER_EXTERNAL_URL', '')}{WEBHOOK_PATH}" if os.getenv("RENDER_EXTERNAL_URL") else None
