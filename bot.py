@@ -869,78 +869,87 @@ async def handle_reply_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info("Command detected, ignoring")
         return
         
-    if flow["step"] == 1:
-        # 第一步：获取关键词
-        flow["keyword"] = text
-        flow["step"] = 2
-        context.user_data["reply_flow"] = flow  # 确保状态被保存
-        logger.info(f"Step 1 completed, keyword set to: {text}")
-        await update.message.reply_text(
-            f"📝 关键词: {text}\n\n"
-            "第2步：请回复此消息，输入回复内容\n"
-            "输入 /cancel 取消操作"
-        )
-        
-    elif flow["step"] == 2:
-        # 第二步：获取回复内容
-        flow["reply_text"] = text
-        flow["step"] = 3
-        context.user_data["reply_flow"] = flow  # 确保状态被保存
-        logger.info(f"Step 2 completed, reply text set to: {text}")
-        await update.message.reply_text(
-            f"📝 关键词: {flow['keyword']}\n"
-            f"💬 回复内容: {text}\n\n"
-            "第3步：请回复此消息，输入链接和链接文本（可选）\n"
-            "格式：链接 [链接文本]文本\n"
-            "例如：https://example.com [链接文本]点击这里\n"
-            "直接回复 /skip 跳过此步\n"
-            "输入 /cancel 取消操作"
-        )
-        
-    elif flow["step"] == 3:
-        # 第三步：获取链接信息
-        if text.lower() == "/skip":
-            link = ""
-            link_text = ""
-        else:
-            # 解析链接和链接文本
-            if "[链接文本]" in text:
-                parts = text.split("[链接文本]")
-                link = parts[0].strip()
-                link_text = parts[1].strip() if len(parts) > 1 else "点击这里"
-            else:
-                link = text.strip()
-                link_text = "点击这里"
-        
-        logger.info(f"Step 3 completed, link={link}, link_text={link_text}")
-        
-        # 保存回复
-        if flow["action"] == "edit":
-            # 修改时先删除旧的
-            await sheets_storage.delete_keyword_reply(flow["keyword"])
-            
-        success = await sheets_storage.add_keyword_reply(
-            keyword=flow["keyword"],
-            reply_text=flow["reply_text"],
-            link=link,
-            link_text=link_text
-        )
-        
-        if success:
-            action_text = "修改" if flow["action"] == "edit" else "添加"
+    try:
+        if flow["step"] == 1:
+            # 第一步：获取关键词
+            flow["keyword"] = text
+            flow["step"] = 2
+            context.user_data["reply_flow"] = flow  # 确保状态被保存
+            logger.info(f"Step 1 completed, keyword set to: {text}")
             await update.message.reply_text(
-                f"✅ 已{action_text}关键词回复:\n\n"
-                f"🔑 关键词: {flow['keyword']}\n"
-                f"💬 回复: {flow['reply_text']}\n"
-                f"🔗 链接: {link if link else '无'}\n"
-                f"📝 链接文本: {link_text if link else '无'}"
+                f"📝 关键词: {text}\n\n"
+                "第2步：请回复此消息，输入回复内容\n"
+                "输入 /cancel 取消操作"
             )
-        else:
-            await update.message.reply_text(f"❌ {action_text}关键词回复失败")
             
+        elif flow["step"] == 2:
+            # 第二步：获取回复内容
+            flow["reply_text"] = text
+            flow["step"] = 3
+            context.user_data["reply_flow"] = flow  # 确保状态被保存
+            logger.info(f"Step 2 completed, reply text set to: {text}")
+            await update.message.reply_text(
+                f"📝 关键词: {flow['keyword']}\n"
+                f"💬 回复内容: {text}\n\n"
+                "第3步：请回复此消息，输入链接和链接文本（可选）\n"
+                "格式：链接 [链接文本]文本\n"
+                "例如：https://example.com [链接文本]点击这里\n"
+                "直接回复 /skip 跳过此步\n"
+                "输入 /cancel 取消操作"
+            )
+            
+        elif flow["step"] == 3:
+            # 第三步：获取链接信息
+            if text.lower() == "/skip":
+                link = ""
+                link_text = ""
+            else:
+                # 解析链接和链接文本
+                if "[链接文本]" in text:
+                    parts = text.split("[链接文本]")
+                    link = parts[0].strip()
+                    link_text = parts[1].strip() if len(parts) > 1 else "点击这里"
+                else:
+                    link = text.strip()
+                    link_text = "点击这里"
+            
+            logger.info(f"Step 3 completed, link={link}, link_text={link_text}")
+            
+            # 保存回复
+            action_text = "修改" if flow["action"] == "edit" else "添加"
+            
+            if flow["action"] == "edit":
+                # 修改时先删除旧的
+                await sheets_storage.delete_keyword_reply(flow["keyword"])
+                
+            success = await sheets_storage.add_keyword_reply(
+                keyword=flow["keyword"],
+                reply_text=flow["reply_text"],
+                link=link,
+                link_text=link_text
+            )
+            
+            if success:
+                await update.message.reply_text(
+                    f"✅ 已{action_text}关键词回复:\n\n"
+                    f"🔑 关键词: {flow['keyword']}\n"
+                    f"💬 回复: {flow['reply_text']}\n"
+                    f"🔗 链接: {link if link else '无'}\n"
+                    f"📝 链接文本: {link_text if link else '无'}"
+                )
+            else:
+                await update.message.reply_text(f"❌ {action_text}关键词回复失败")
+                
+            # 清理流程数据
+            del context.user_data["reply_flow"]
+            logger.info("Reply flow completed and cleaned up")
+            
+    except Exception as e:
+        logger.error(f"Error in handle_reply_flow: {e}")
+        await update.message.reply_text("❌ 操作失败，请重试")
         # 清理流程数据
-        del context.user_data["reply_flow"]
-        logger.info("Reply flow completed and cleaned up")
+        if "reply_flow" in context.user_data:
+            del context.user_data["reply_flow"]
 
 async def auto_reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """自动回复关键词消息"""
