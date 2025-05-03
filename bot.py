@@ -850,13 +850,14 @@ async def handle_reply_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     # 检查是否是回复机器人的消息
     if not update.message.reply_to_message or not update.message.reply_to_message.from_user.is_bot:
-        logger.warning("Message is not a reply to bot's message")
+        logger.warning(f"Message is not a reply to bot's message. Reply message: {update.message.reply_to_message}")
         return
         
     flow = context.user_data["reply_flow"]
     text = update.message.text
     
     logger.info(f"Processing reply flow: step={flow.get('step')}, action={flow.get('action')}, text={text}")
+    logger.info(f"Reply to message: {update.message.reply_to_message.text}")
     
     if text.startswith("/"):
         logger.info("Command detected, ignoring")
