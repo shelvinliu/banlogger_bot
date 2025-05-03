@@ -1357,25 +1357,25 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
         
-    text = update.message.text.lower().strip()
+    text = update.message.text.strip().lower()  # 转换为小写进行比较
     logger.info(f"Processing message: {text}")
     
-    # 早安关键词
-    morning_keywords = ["早安", "早上好", "good morning", "morning", "gm", "早"]
+    # 早安关键词（转换为小写进行比较）
+    morning_keywords = [kw.lower() for kw in ["早安", "早上好", "good morning", "morning", "gm", "早"]]
     # 午安关键词
-    noon_keywords = ["午安", "中午好", "good noon", "noon"]
+    noon_keywords = [kw.lower() for kw in ["午安", "中午好", "good noon", "noon"]]
     # 晚安关键词
-    night_keywords = ["晚安", "晚上好", "good night", "night", "gn"]
+    night_keywords = [kw.lower() for kw in ["晚安", "晚上好", "good night", "night", "gn"]]
     
     # 精确匹配关键词（不区分大小写）
-    if text in [kw.lower() for kw in morning_keywords]:
-        logger.info("Morning greeting triggered")
+    if text in morning_keywords:
+        logger.info(f"Morning greeting triggered for exact match: {text}")
         await morning_greeting_handler(update, context)
-    elif text in [kw.lower() for kw in noon_keywords]:
-        logger.info("Noon greeting triggered")
+    elif text in noon_keywords:
+        logger.info(f"Noon greeting triggered for exact match: {text}")
         await noon_greeting_handler(update, context)
-    elif text in [kw.lower() for kw in night_keywords]:
-        logger.info("Night greeting triggered")
+    elif text in night_keywords:
+        logger.info(f"Night greeting triggered for exact match: {text}")
         await goodnight_greeting_handler(update, context)
 
 async def ban_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1622,10 +1622,14 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(CallbackQueryHandler(reply_callback_handler, pattern="^reply:"))
         bot_app.add_handler(CallbackQueryHandler(kick_reason_handler, pattern="^kick_reason"))
         
-        # 添加消息处理器
-        bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.REPLY, auto_reply_handler))
+        # 添加消息处理器 - 调整顺序和过滤器
+        # 1. 首先处理回复消息
         bot_app.add_handler(MessageHandler(filters.TEXT & filters.REPLY, handle_reply_flow))
+        # 2. 然后处理问候功能
         bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
+        # 3. 最后处理关键词回复
+        bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.REPLY, auto_reply_handler))
+        # 4. 处理其他消息
         bot_app.add_handler(MessageHandler(filters.ALL, forward_message_handler))
         
         # 添加群组成员变更处理器
