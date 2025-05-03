@@ -840,21 +840,28 @@ async def reply_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
 async def handle_reply_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理关键词回复的流程"""
     if not update.message or not update.message.text:
+        logger.warning("No message or text in update")
         return
         
     if "reply_flow" not in context.user_data:
+        logger.warning("No reply_flow in user_data")
         return
         
     flow = context.user_data["reply_flow"]
     text = update.message.text
     
+    logger.info(f"Processing reply flow: step={flow.get('step')}, action={flow.get('action')}, text={text}")
+    
     if text.startswith("/"):
+        logger.info("Command detected, ignoring")
         return
         
     if flow["step"] == 1:
         # 第一步：获取关键词
         flow["keyword"] = text
         flow["step"] = 2
+        context.user_data["reply_flow"] = flow  # 确保状态被保存
+        logger.info(f"Step 1 completed, keyword set to: {text}")
         await update.message.reply_text(
             f"📝 关键词: {text}\n\n"
             "第2步：请输入回复内容\n"
@@ -865,6 +872,8 @@ async def handle_reply_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # 第二步：获取回复内容
         flow["reply_text"] = text
         flow["step"] = 3
+        context.user_data["reply_flow"] = flow  # 确保状态被保存
+        logger.info(f"Step 2 completed, reply text set to: {text}")
         await update.message.reply_text(
             f"📝 关键词: {flow['keyword']}\n"
             f"💬 回复内容: {text}\n\n"
@@ -889,6 +898,8 @@ async def handle_reply_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 link = text.strip()
                 link_text = "点击这里"
+        
+        logger.info(f"Step 3 completed, link={link}, link_text={link_text}")
         
         # 保存回复
         if flow["action"] == "edit":
@@ -916,6 +927,7 @@ async def handle_reply_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
         # 清理流程数据
         del context.user_data["reply_flow"]
+        logger.info("Reply flow completed and cleaned up")
 
 async def auto_reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """自动回复关键词消息"""
@@ -1534,7 +1546,7 @@ async def lifespan(app: FastAPI):
         # 添加消息处理器
         bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
         bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, auto_reply_handler))
-        bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_reply_flow))
+        bot_app.add_handler(MessageHandler(filters.TEXT, handle_reply_flow))
         bot_app.add_handler(MessageHandler(filters.ALL, forward_message_handler))
         
         # 添加群组成员变更处理器
