@@ -918,10 +918,6 @@ async def handle_reply_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Processing reply flow: step={flow.get('step')}, action={flow.get('action')}, text={text}")
     logger.info(f"Reply to message: {update.message.reply_to_message.text}")
     
-    if text.startswith("/"):
-        logger.info("Command detected, ignoring")
-        return
-        
     try:
         if flow["step"] == 1:
             # 第一步：获取关键词
@@ -956,6 +952,7 @@ async def handle_reply_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if text.lower() == "/skip":
                 link = ""
                 link_text = ""
+                logger.info("Skipping link step")
             else:
                 # 解析链接和链接文本
                 if "[链接文本]" in text:
@@ -974,7 +971,7 @@ async def handle_reply_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if flow["action"] == "edit":
                 # 修改时先删除旧的
                 await sheets_storage.delete_keyword_reply(flow["keyword"])
-                
+            
             success = await sheets_storage.add_keyword_reply(
                 keyword=flow["keyword"],
                 reply_text=flow["reply_text"],
@@ -992,7 +989,7 @@ async def handle_reply_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             else:
                 await update.message.reply_text(f"❌ {action_text}关键词回复失败")
-                
+            
             # 清理流程数据
             del context.user_data["reply_flow"]
             logger.info("Reply flow completed and cleaned up")
