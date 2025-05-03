@@ -840,6 +840,8 @@ async def reply_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
 
 async def handle_reply_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理关键词回复的流程"""
+    logger.info("handle_reply_flow called")
+    
     if not update.message or not update.message.text:
         logger.warning("No message or text in update")
         return
@@ -849,8 +851,12 @@ async def handle_reply_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
         
     # 检查是否是回复机器人的消息
-    if not update.message.reply_to_message or not update.message.reply_to_message.from_user.is_bot:
-        logger.warning(f"Message is not a reply to bot's message. Reply message: {update.message.reply_to_message}")
+    if not update.message.reply_to_message:
+        logger.warning("No reply_to_message found")
+        return
+        
+    if not update.message.reply_to_message.from_user.is_bot:
+        logger.warning(f"Message is not a reply to bot's message. Reply message: {update.message.reply_to_message.text}")
         return
         
     flow = context.user_data["reply_flow"]
@@ -1551,9 +1557,9 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(CallbackQueryHandler(reply_callback_handler, pattern="^reply:"))
         
         # 添加消息处理器
-        bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
         bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.REPLY, auto_reply_handler))
-        bot_app.add_handler(MessageHandler(filters.TEXT, handle_reply_flow))
+        bot_app.add_handler(MessageHandler(filters.TEXT & filters.REPLY, handle_reply_flow))
+        bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
         bot_app.add_handler(MessageHandler(filters.ALL, forward_message_handler))
         
         # 添加群组成员变更处理器
