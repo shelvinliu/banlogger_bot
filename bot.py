@@ -130,6 +130,7 @@ class GoogleSheetsStorage:
                     
             # 添加新记录
             self.reply_sheet.append_row([keyword, reply_text, link, link_text])
+            logger.info(f"成功添加关键词回复: {keyword}")
             return True
             
         except Exception as e:
@@ -147,10 +148,11 @@ class GoogleSheetsStorage:
             for i, record in enumerate(records, start=2):  # 从第2行开始（跳过标题行）
                 if record.get("关键词") == keyword:
                     self.reply_sheet.delete_row(i)
+                    logger.info(f"成功删除关键词回复: {keyword}")
                     return True
                     
             return False
-            
+                
         except Exception as e:
             logger.error(f"删除关键词回复失败: {e}")
             return False
