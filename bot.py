@@ -955,11 +955,12 @@ async def handle_reply_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
             flow["step"] = 2
             context.user_data["reply_flow"] = flow  # 确保状态被保存
             logger.info(f"Step 1 completed, keyword set to: {text}")
-            await update.message.reply_text(
+            sent_message = await update.message.reply_text(
                 f"📝 关键词: {text}\n\n"
                 "第2步：请回复此消息，输入回复内容\n"
                 "输入 /cancel 取消操作"
             )
+            asyncio.create_task(delete_message_later(sent_message, delay=300))
             
         elif flow["step"] == 2:
             # 第二步：获取回复内容
@@ -967,7 +968,7 @@ async def handle_reply_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
             flow["step"] = 3
             context.user_data["reply_flow"] = flow  # 确保状态被保存
             logger.info(f"Step 2 completed, reply text set to: {text}")
-            await update.message.reply_text(
+            sent_message = await update.message.reply_text(
                 f"📝 关键词: {flow['keyword']}\n"
                 f"💬 回复内容: {text}\n\n"
                 "第3步：请回复此消息，输入链接和链接文本（可选）\n"
@@ -976,6 +977,7 @@ async def handle_reply_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "直接回复 /skip 跳过此步\n"
                 "输入 /cancel 取消操作"
             )
+            asyncio.create_task(delete_message_later(sent_message, delay=300))
             
         elif flow["step"] == 3:
             # 第三步：获取链接信息
@@ -1010,7 +1012,7 @@ async def handle_reply_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             
             if success:
-                await update.message.reply_text(
+                sent_message = await update.message.reply_text(
                     f"✅ 已{action_text}关键词回复:\n\n"
                     f"🔑 关键词: {flow['keyword']}\n"
                     f"💬 回复: {flow['reply_text']}\n"
@@ -1018,7 +1020,10 @@ async def handle_reply_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"📝 链接文本: {link_text if link else '无'}"
                 )
             else:
-                await update.message.reply_text(f"❌ {action_text}关键词回复失败")
+                sent_message = await update.message.reply_text(f"❌ {action_text}关键词回复失败")
+            
+            # 设置定时删除消息
+            asyncio.create_task(delete_message_later(sent_message, delay=300))
             
             # 清理流程数据
             del context.user_data["reply_flow"]
@@ -1026,7 +1031,8 @@ async def handle_reply_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
     except Exception as e:
         logger.error(f"Error in handle_reply_flow: {e}")
-        await update.message.reply_text("❌ 操作失败，请重试")
+        sent_message = await update.message.reply_text("❌ 操作失败，请重试")
+        asyncio.create_task(delete_message_later(sent_message, delay=300))
         # 清理流程数据
         if "reply_flow" in context.user_data:
             del context.user_data["reply_flow"]
@@ -1058,7 +1064,7 @@ async def auto_reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     f"💡 点击下方按钮了解更多："
                 )
                 
-                await update.message.reply_text(
+                sent_message = await update.message.reply_text(
                     formatted_reply,
                     reply_markup=reply_markup
                 )
@@ -1068,7 +1074,10 @@ async def auto_reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     f"✨ {reply_text}\n\n"
                     f"💫 需要帮助可以随时问我哦~"
                 )
-                await update.message.reply_text(formatted_reply)
+                sent_message = await update.message.reply_text(formatted_reply)
+            
+            # 设置定时删除消息
+            asyncio.create_task(delete_message_later(sent_message, delay=300))  # 5分钟后删除
             break
 
 async def records_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
