@@ -110,11 +110,12 @@ class GoogleSheetsStorage:
                         "链接文本": record.get("链接文本", "")
                     })
                     
+            logger.info(f"成功获取 {len(replies)} 条关键词回复")
             return replies
             
         except Exception as e:
             logger.error(f"获取关键词回复失败: {e}")
-            return []
+            return []  # 返回空列表而不是抛出异常
             
     async def add_keyword_reply(self, keyword: str, reply_text: str, link: str = "", link_text: str = "") -> bool:
         """添加关键词回复"""
