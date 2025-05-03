@@ -211,7 +211,7 @@ MAX_RECORDS_DISPLAY = 10
 EXCEL_FILE = "ban_records.xlsx"
 
 # 全局变量
-ADMIN_USER_IDS = [7705231017]  # 管理员用户ID列表
+ADMIN_USER_IDS = [int(id) for id in os.getenv("ADMIN_USER_IDS", "").split(",") if id]  # 管理员用户ID列表
 TARGET_GROUP_ID = 1002444909093  # 目标群组ID
 MONITORED_BOT_IDS = [7039829949]  # 要监听的机器人ID列表
 bot_app = None
