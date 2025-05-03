@@ -847,6 +847,11 @@ async def handle_reply_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.warning("No reply_flow in user_data")
         return
         
+    # 检查是否是回复机器人的消息
+    if not update.message.reply_to_message or not update.message.reply_to_message.from_user.is_bot:
+        logger.warning("Message is not a reply to bot's message")
+        return
+        
     flow = context.user_data["reply_flow"]
     text = update.message.text
     
@@ -864,7 +869,7 @@ async def handle_reply_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"Step 1 completed, keyword set to: {text}")
         await update.message.reply_text(
             f"📝 关键词: {text}\n\n"
-            "第2步：请输入回复内容\n"
+            "第2步：请回复此消息，输入回复内容\n"
             "输入 /cancel 取消操作"
         )
         
@@ -877,10 +882,10 @@ async def handle_reply_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"📝 关键词: {flow['keyword']}\n"
             f"💬 回复内容: {text}\n\n"
-            "第3步：请输入链接和链接文本（可选）\n"
+            "第3步：请回复此消息，输入链接和链接文本（可选）\n"
             "格式：链接 [链接文本]文本\n"
             "例如：https://example.com [链接文本]点击这里\n"
-            "直接发送 /skip 跳过此步\n"
+            "直接回复 /skip 跳过此步\n"
             "输入 /cancel 取消操作"
         )
         
@@ -1545,7 +1550,7 @@ async def lifespan(app: FastAPI):
         
         # 添加消息处理器
         bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
-        bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, auto_reply_handler))
+        bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.REPLY, auto_reply_handler))
         bot_app.add_handler(MessageHandler(filters.TEXT, handle_reply_flow))
         bot_app.add_handler(MessageHandler(filters.ALL, forward_message_handler))
         
