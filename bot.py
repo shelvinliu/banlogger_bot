@@ -127,15 +127,16 @@ class GoogleSheetsStorage:
             records = self.reply_sheet.get_all_records()
             for record in records:
                 if record.get("关键词") == keyword:
+                    logger.warning(f"Keyword already exists: {keyword}")
                     return False
                     
             # 添加新记录
             self.reply_sheet.append_row([keyword, reply_text, link, link_text])
-            logger.info(f"成功添加关键词回复: {keyword}")
+            logger.info(f"Successfully added keyword reply: {keyword}")
             return True
             
         except Exception as e:
-            logger.error(f"添加关键词回复失败: {e}")
+            logger.error(f"Failed to add keyword reply: {e}")
             return False
             
     async def delete_keyword_reply(self, keyword: str) -> bool:
@@ -1681,6 +1682,7 @@ async def root():
 
 # 添加健康检查路由
 @app.get("/health")
+@app.head("/health")
 async def health_check():
     """健康检查"""
     return {
