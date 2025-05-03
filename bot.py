@@ -1795,71 +1795,82 @@ class TwitterScraper:
         tweets = []
         retry_count = 0
         
+        # 定义多个 Nitter 实例作为备选
+        nitter_instances = [
+            "https://nitter.kavin.rocks",
+            "https://nitter.1d4.us",
+            "https://nitter.unixfox.eu",
+            "https://nitter.net"
+        ]
+        
         while retry_count < self.max_retries:
             try:
                 session = await self._get_session()
-                # 使用 nitter.net
-                url = f"https://nitter.net/{username}"
-                
-                async with session.get(url) as response:
-                    if response.status == 404:
-                        raise ValueError(f"用户 @{username} 不存在")
-                    elif response.status != 200:
-                        raise Exception(f"获取推文失败: HTTP {response.status}")
-                    
-                    html = await response.text()
-                    soup = BeautifulSoup(html, 'html.parser')
-                    
-                    # 解析推文
-                    tweet_elements = soup.select('.timeline-item')
-                    for tweet in tweet_elements[:count]:
-                        try:
-                            # 获取推文内容
-                            content = tweet.select_one('.tweet-content')
-                            if not content:
-                                continue
-                                
-                            # 获取推文ID
-                            tweet_link = tweet.select_one('.tweet-link')
-                            if not tweet_link:
-                                continue
-                            tweet_id = tweet_link['href'].split('/')[-1]
+                # 尝试不同的 Nitter 实例
+                for instance in nitter_instances:
+                    try:
+                        url = f"{instance}/{username}"
+                        async with session.get(url, timeout=10) as response:
+                            if response.status == 404:
+                                raise ValueError(f"用户 @{username} 不存在")
+                            elif response.status != 200:
+                                continue  # 尝试下一个实例
                             
-                            # 获取发布时间
-                            time_element = tweet.select_one('.tweet-date')
-                            if not time_element:
-                                continue
-                            time_str = time_element['title']
-                            created_at = datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S %z")
+                            html = await response.text()
+                            soup = BeautifulSoup(html, 'html.parser')
                             
-                            tweets.append({
-                                'text': content.get_text(strip=True),
-                                'created_at': created_at,
-                                'url': f"https://twitter.com/{username}/status/{tweet_id}",
-                                'author': username
-                            })
-                        except Exception as e:
-                            self.logger.warning(f"解析推文时出错: {str(e)}")
-                            continue
+                            # 解析推文
+                            tweet_elements = soup.select('.timeline-item')
+                            for tweet in tweet_elements[:count]:
+                                try:
+                                    # 获取推文内容
+                                    content = tweet.select_one('.tweet-content')
+                                    if not content:
+                                        continue
+                                        
+                                    # 获取推文ID
+                                    tweet_link = tweet.select_one('.tweet-link')
+                                    if not tweet_link:
+                                        continue
+                                    tweet_id = tweet_link['href'].split('/')[-1]
+                                    
+                                    # 获取发布时间
+                                    time_element = tweet.select_one('.tweet-date')
+                                    if not time_element:
+                                        continue
+                                    time_str = time_element['title']
+                                    created_at = datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S %z")
+                                    
+                                    tweets.append({
+                                        'text': content.get_text(strip=True),
+                                        'created_at': created_at,
+                                        'url': f"https://twitter.com/{username}/status/{tweet_id}",
+                                        'author': username
+                                    })
+                                except Exception as e:
+                                    self.logger.warning(f"解析推文时出错: {str(e)}")
+                                    continue
+                        
+                        if tweets:
+                            return tweets
+                        break  # 如果成功获取推文，跳出实例循环
+                    except Exception as e:
+                        self.logger.warning(f"使用实例 {instance} 获取推文失败: {str(e)}")
+                        continue  # 尝试下一个实例
                 
-                if tweets:
-                    return tweets
-                else:
-                    self.logger.warning(f"No tweets found for @{username}")
-                    return []
-                    
-            except aiohttp.ClientError as e:
+                if not tweets:
+                    retry_count += 1
+                    if retry_count < self.max_retries:
+                        await asyncio.sleep(self.retry_delay * retry_count)
+                    else:
+                        raise Exception("所有 Nitter 实例均无法访问")
+                
+            except Exception as e:
                 retry_count += 1
-                error_msg = str(e)
-                self.logger.error(f"Error fetching tweets for @{username} (attempt {retry_count}/{self.max_retries}): {error_msg}")
-                
                 if retry_count < self.max_retries:
                     await asyncio.sleep(self.retry_delay * retry_count)
                 else:
-                    raise Exception(f"获取推文失败: {error_msg}")
-            
-            except Exception as e:
-                raise e
+                    raise Exception(f"获取推文失败: {str(e)}")
         
         return []
 
@@ -1960,20 +1971,20 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.chat.type in ['group', 'supergroup']:
         await nitter_monitor.add_group_chat(update.message.chat.id)
         
-    text = update.message.text.lower()
+    text = update.message.text.lower()  # 转换为小写以支持不区分大小写
     
-    # 早安关键词（不区分大小写）
-    morning_keywords = ["gm", "早", "早安", "早上好", "morning", "good morning", "GM", "Morning", "Good Morning", "GOOD MORNING"]
-    # 午安关键词（不区分大小写）
-    noon_keywords = ["午安", "中午好", "午好", "noon", "good noon", "Noon", "Good Noon", "GOOD NOON"]
-    # 晚安关键词（不区分大小写）
-    night_keywords = ["gn", "晚安", "晚上好", "night", "good night", "GN", "Night", "Good Night", "GOOD NIGHT"]
+    # 早安关键词（完全匹配，不区分大小写）
+    morning_keywords = ["早安", "早上好", "good morning", "morning", "gm", "早"]
+    # 午安关键词（完全匹配，不区分大小写）
+    noon_keywords = ["午安", "中午好", "good noon", "noon", "good afternoon"]
+    # 晚安关键词（完全匹配，不区分大小写）
+    night_keywords = ["晚安", "晚上好", "good night", "night", "gn"]
     
-    if any(keyword.lower() in text for keyword in morning_keywords):
+    if text in morning_keywords:
         await morning_greeting_handler(update, context)
-    elif any(keyword.lower() in text for keyword in noon_keywords):
+    elif text in noon_keywords:
         await noon_greeting_handler(update, context)
-    elif any(keyword.lower() in text for keyword in night_keywords):
+    elif text in night_keywords:
         await goodnight_greeting_handler(update, context)
 
 @asynccontextmanager
