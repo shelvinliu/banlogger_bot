@@ -132,17 +132,37 @@ class GoogleSheetsStorage:
             await self.initialize()
             
         try:
+            # 检查表格是否存在
+            if not self.reply_sheet:
+                logger.error("Reply sheet not initialized")
+                return False
+                
+            # 获取所有记录
+            try:
+                records = self.reply_sheet.get_all_records()
+                logger.info(f"Retrieved {len(records)} existing records")
+            except Exception as e:
+                logger.error(f"Failed to get records: {e}")
+                records = []
+            
             # 检查关键词是否已存在
-            records = self.reply_sheet.get_all_records()
             for record in records:
                 if record.get("关键词") == keyword:
                     logger.warning(f"Keyword already exists: {keyword}")
                     return False
-                    
+            
+            # 准备新行数据
+            new_row = [keyword, reply_text, link, link_text]
+            logger.info(f"Preparing to add new row: {new_row}")
+            
             # 添加新记录
-            self.reply_sheet.append_row([keyword, reply_text, link, link_text])
-            logger.info(f"Successfully added keyword reply: {keyword}")
-            return True
+            try:
+                self.reply_sheet.append_row(new_row)
+                logger.info(f"Successfully added keyword reply: {keyword}")
+                return True
+            except Exception as e:
+                logger.error(f"Failed to append row: {e}")
+                return False
             
         except Exception as e:
             logger.error(f"Failed to add keyword reply: {e}")
