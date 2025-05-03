@@ -661,9 +661,10 @@ async def reply_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
                 "step": 1,
                 "action": "add"
             }
-            await query.message.edit_text(
+            # 发送新消息而不是编辑原消息
+            await query.message.reply_text(
                 "📝 添加关键词回复\n\n"
-                "第1步：请输入关键词\n"
+                "第1步：请回复此消息，输入关键词\n"
                 "输入 /cancel 取消操作"
             )
             
