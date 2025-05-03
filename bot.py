@@ -224,11 +224,25 @@ app = FastAPI()
 
 async def check_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     """检查用户是否是管理员"""
-    user_id = update.effective_user.id
-    is_admin = user_id in ADMIN_USER_IDS
-    logger.info(f"Checking admin status for user {user_id}: {is_admin}")
-    logger.info(f"Admin user IDs: {ADMIN_USER_IDS}")
-    return is_admin
+    try:
+        # 获取用户和聊天信息
+        user = update.effective_user
+        chat = update.effective_chat
+        
+        if not user or not chat:
+            return False
+            
+        # 获取用户在群组中的状态
+        member = await context.bot.get_chat_member(chat.id, user.id)
+        
+        # 检查用户是否是管理员或群主
+        is_admin = member.status in ['administrator', 'creator']
+        logger.info(f"Checking admin status for user {user.id}: {is_admin} (status: {member.status})")
+        return is_admin
+        
+    except Exception as e:
+        logger.error(f"Error checking admin status: {e}")
+        return False
 
 async def delete_message_later(message, delay: int = 30):
     """在指定时间后删除消息"""
