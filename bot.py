@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 
 import pytz
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatMember
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters, ChatMemberHandler
+from telegram.ext import Application, ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters, ChatMemberHandler
 from fastapi import FastAPI, Request
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -187,6 +187,8 @@ EXCEL_FILE = "ban_records.xlsx"
 
 # 全局变量
 ADMIN_USER_IDS = [int(id) for id in os.getenv("ADMIN_USER_IDS", "").split(",") if id]
+TARGET_GROUP_ID = int(os.getenv("TARGET_GROUP_ID", "0"))  # 目标群组ID
+MONITORED_BOT_IDS = [int(id) for id in os.getenv("MONITORED_BOT_IDS", "").split(",") if id]  # 要监听的机器人ID列表
 bot_app = None
 bot_initialized = False
 ban_records = []
@@ -239,17 +241,20 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "│  └─ /export - 导出封禁记录\n\n"
         "├─ 📝 关键词回复\n"
         "│  └─ /reply - 管理关键词自动回复\n\n"
-        "└─ 🌟 问候功能\n"
-        "   ├─ /morning - 早安问候\n"
-        "   ├─ /noon - 午安问候\n"
-        "   ├─ /night - 晚安问候\n"
-        "   └─ /comfort - 安慰消息\n\n"
+        "├─ 🌟 问候功能\n"
+        "│  ├─ /morning - 早安问候\n"
+        "│  ├─ /noon - 午安问候\n"
+        "│  ├─ /night - 晚安问候\n"
+        "│  └─ /comfort - 安慰消息\n\n"
+        "└─ 🔄 消息转发\n"
+        "   └─ 自动转发指定机器人的消息到目标群组\n\n"
         "⚠️ 注意：\n"
         "• 请确保机器人有管理员权限\n"
         "• 部分功能仅管理员可用\n"
         "• 使用前请仔细阅读命令说明\n"
         "• 关键词回复支持自定义链接和文本\n"
-        "• 问候功能支持多种风格和随机彩蛋"
+        "• 问候功能支持多种风格和随机彩蛋\n"
+        "• 消息转发功能需要配置目标群组ID和监听机器人ID"
     )
     
     # 发送欢迎消息
@@ -1428,6 +1433,29 @@ async def chat_member_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception as e:
         logger.error(f"处理群组成员变更事件时出错: {e}")
 
+async def forward_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理消息转发"""
+    if not update.message or not update.message.from_user:
+        return
+        
+    # 检查消息是否来自要监听的机器人
+    if update.message.from_user.id in MONITORED_BOT_IDS:
+        try:
+            # 获取消息内容
+            message = update.message
+            
+            # 转发到目标群组
+            if TARGET_GROUP_ID:
+                try:
+                    # 直接转发消息
+                    await message.forward(chat_id=TARGET_GROUP_ID)
+                    logger.info(f"已转发来自机器人 {message.from_user.first_name} 的消息到群组 {TARGET_GROUP_ID}")
+                except Exception as e:
+                    logger.error(f"转发消息到群组 {TARGET_GROUP_ID} 失败: {e}")
+                    
+        except Exception as e:
+            logger.error(f"处理转发消息时出错: {e}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
@@ -1464,6 +1492,7 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
         bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, auto_reply_handler))
         bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_reply_flow))
+        bot_app.add_handler(MessageHandler(filters.ALL, forward_message_handler))  # 添加转发处理器
         
         # 添加群组成员变更处理器
         bot_app.add_handler(ChatMemberHandler(chat_member_handler))
