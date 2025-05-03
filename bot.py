@@ -224,7 +224,11 @@ app = FastAPI()
 
 async def check_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     """检查用户是否是管理员"""
-    return update.effective_user.id in ADMIN_USER_IDS
+    user_id = update.effective_user.id
+    is_admin = user_id in ADMIN_USER_IDS
+    logger.info(f"Checking admin status for user {user_id}: {is_admin}")
+    logger.info(f"Admin user IDs: {ADMIN_USER_IDS}")
+    return is_admin
 
 async def delete_message_later(message, delay: int = 30):
     """在指定时间后删除消息"""
@@ -1502,7 +1506,7 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(CommandHandler("records", records_handler))
         bot_app.add_handler(CommandHandler("search", search_handler))
         bot_app.add_handler(CommandHandler("export", export_handler))
-        bot_app.add_handler(CommandHandler("keyword", keyword_reply_handler))
+        bot_app.add_handler(CommandHandler("reply", keyword_reply_handler))
         bot_app.add_handler(CommandHandler("morning", morning_greeting_handler))
         bot_app.add_handler(CommandHandler("noon", noon_greeting_handler))
         bot_app.add_handler(CommandHandler("night", goodnight_greeting_handler))
@@ -1517,7 +1521,7 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
         bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, auto_reply_handler))
         bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_reply_flow))
-        bot_app.add_handler(MessageHandler(filters.ALL, forward_message_handler))  # 添加转发处理器
+        bot_app.add_handler(MessageHandler(filters.ALL, forward_message_handler))
         
         # 添加群组成员变更处理器
         bot_app.add_handler(ChatMemberHandler(chat_member_handler))
