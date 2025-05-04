@@ -661,12 +661,23 @@ async def unmute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
             
         try:
-            # 获取用户信息
+            # 尝试通过用户名获取用户
             chat_member = await context.bot.get_chat_member(chat.id, username)
             user = chat_member.user
         except Exception as e:
-            await message.reply_text(f"无法找到用户 @{username}")
-            return
+            logger.error(f"通过用户名获取用户失败: {e}")
+            # 尝试通过用户ID获取
+            try:
+                # 如果用户名是纯数字，尝试作为用户ID处理
+                if username.isdigit():
+                    chat_member = await context.bot.get_chat_member(chat.id, int(username))
+                    user = chat_member.user
+                else:
+                    raise Exception("用户名无效")
+            except Exception as e:
+                logger.error(f"通过用户ID获取用户失败: {e}")
+                await message.reply_text(f"无法找到用户 @{username}，请确保用户名正确且用户在群组中")
+                return
             
         # 创建解除禁言记录
         record = {
