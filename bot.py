@@ -643,20 +643,29 @@ async def unmute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if not message:
             return
             
-        # 获取通过@username
-        user = None
+        # 获取群组信息
         chat = message.chat
-        if context.args:
-            username = context.args[0].lstrip('@')
-            user = await context.bot.get_chat_member(chat.id, username)
-            user = user.user if user else None
-        
-        if not user:
-            await message.reply_text("无法获取用户信息")
-            return
-            
         if not chat:
             await message.reply_text("无法获取群组信息")
+            return
+            
+        # 检查是否提供了用户名
+        if not context.args:
+            await message.reply_text("请使用 @username 指定要解除禁言的用户")
+            return
+            
+        # 获取用户名并移除 @ 符号
+        username = context.args[0].lstrip('@')
+        if not username:
+            await message.reply_text("请提供有效的用户名")
+            return
+            
+        try:
+            # 获取用户信息
+            chat_member = await context.bot.get_chat_member(chat.id, username)
+            user = chat_member.user
+        except Exception as e:
+            await message.reply_text(f"无法找到用户 @{username}")
             return
             
         # 创建解除禁言记录
@@ -664,7 +673,7 @@ async def unmute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "操作时间": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S"),
             "电报群组名称": chat.title,
             "用户ID": str(user.id),
-            "用户名": user.username or "无",
+            "用户名": f"@{user.username}" if user.username else "无",
             "名称": user.first_name,
             "操作管理": message.from_user.first_name,
             "理由": "解除禁言",
@@ -687,16 +696,16 @@ async def unmute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             permissions=ChatPermissions(
                 can_send_messages=True,
                 can_send_audios=True,
-                can_send_documents=False,
+                can_send_documents=True,
                 can_send_photos=True,
-                can_send_videos=False,
-                can_send_video_notes=False,
-                can_send_voice_notes=False,
-                can_send_other_messages=False,
-                can_add_web_page_previews=False,
-                can_invite_users=False,
-                can_pin_messages=False,
-                can_change_info=False,
+                can_send_videos=True,
+                can_send_video_notes=True,
+                can_send_voice_notes=True,
+                can_send_other_messages=True,
+                can_add_web_page_previews=True,
+                can_invite_users=True,
+                can_pin_messages=True,
+                can_change_info=True,
             )
         )
         
@@ -1512,20 +1521,29 @@ async def unban_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         if not message:
             return
             
-        # 获取通过@username
-        user = None
+        # 获取群组信息
         chat = message.chat
-        if context.args:
-            username = context.args[0].lstrip('@')
-            user = await context.bot.get_chat_member(chat.id, username)
-            user = user.user if user else None
-        
-        if not user:
-            await message.reply_text("无法获取用户信息")
-            return
-            
         if not chat:
             await message.reply_text("无法获取群组信息")
+            return
+            
+        # 检查是否提供了用户名
+        if not context.args:
+            await message.reply_text("请使用 @username 指定要解除封禁的用户")
+            return
+            
+        # 获取用户名并移除 @ 符号
+        username = context.args[0].lstrip('@')
+        if not username:
+            await message.reply_text("请提供有效的用户名")
+            return
+            
+        try:
+            # 获取用户信息
+            chat_member = await context.bot.get_chat_member(chat.id, username)
+            user = chat_member.user
+        except Exception as e:
+            await message.reply_text(f"无法找到用户 @{username}")
             return
             
         # 创建解除封禁记录
@@ -1533,7 +1551,7 @@ async def unban_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             "操作时间": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S"),
             "电报群组名称": chat.title,
             "用户ID": str(user.id),
-            "用户名": user.username or "无",
+            "用户名": f"@{user.username}" if user.username else "无",
             "名称": user.first_name,
             "操作管理": message.from_user.first_name,
             "理由": "解除封禁",
