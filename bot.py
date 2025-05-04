@@ -351,6 +351,7 @@ async def kick_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         # 获取回复的消息或通过@username
         reply_to_message = message.reply_to_message
         user = None
+        chat = message.chat
         if reply_to_message:
             user = reply_to_message.from_user
         elif context.args:
@@ -362,8 +363,6 @@ async def kick_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             await message.reply_text("无法获取用户信息")
             return
             
-        # 获取群组信息
-        chat = message.chat
         if not chat:
             await message.reply_text("无法获取群组信息")
             return
@@ -411,18 +410,14 @@ async def kick_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         action, user_id_str, user_name, reason = query.data.split("|")
         kicked_user_id = int(user_id_str)
     except ValueError:
-        error_msg = await query.message.reply_text("⚠️ 无效的回调数据")
-        asyncio.create_task(delete_message_later(error_msg))
-        return
+        return  # 无效的回调数据，直接返回
     
     # 获取操作上下文
     last_action = context.chat_data.get("last_kick", {})
     
     # 验证操作权限
     if query.from_user.id != last_action.get("operator_id"):
-        error_msg = await query.message.reply_text("⚠️ 只有执行操作的管理员能选择原因")
-        asyncio.create_task(delete_message_later(error_msg))
-        return    
+        return  # 只有执行操作的管理员能选择原因，其他人点击不做任何处理
     
     # 保存记录
     try:
@@ -469,9 +464,7 @@ async def ban_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         action, user_id_str, user_name, reason = query.data.split("|")
         banned_user_id = int(user_id_str)
     except ValueError:
-        error_msg = await query.message.reply_text("⚠️ 无效的回调数据")
-        asyncio.create_task(delete_message_later(error_msg))
-        return
+        return  # 无效的回调数据，直接返回
     
     # 获取操作上下文
     if action == "ban_reason":
@@ -481,15 +474,11 @@ async def ban_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         last_action = context.chat_data.get("last_mute", {})
         action_type = "禁言"
     else:
-        error_msg = await query.message.reply_text("⚠️ 未知的操作类型")
-        asyncio.create_task(delete_message_later(error_msg))
-        return
+        return  # 未知的操作类型，直接返回
     
     # 验证操作权限
     if query.from_user.id != last_action.get("operator_id"):
-        error_msg = await query.message.reply_text("⚠️ 只有执行操作的管理员能选择原因")
-        asyncio.create_task(delete_message_later(error_msg))
-        return    
+        return  # 只有执行操作的管理员能选择原因，其他人点击不做任何处理
     
     # 保存记录
     try:
@@ -534,6 +523,7 @@ async def mute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         # 获取回复的消息或通过@username
         reply_to_message = message.reply_to_message
         user = None
+        chat = message.chat
         if reply_to_message:
             user = reply_to_message.from_user
         elif context.args:
@@ -545,8 +535,6 @@ async def mute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             await message.reply_text("无法获取用户信息")
             return
             
-        # 获取群组信息
-        chat = message.chat
         if not chat:
             await message.reply_text("无法获取群组信息")
             return
@@ -638,6 +626,7 @@ async def unmute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         # 获取回复的消息或通过@username
         reply_to_message = message.reply_to_message
         user = None
+        chat = message.chat
         if reply_to_message:
             user = reply_to_message.from_user
         elif context.args:
@@ -649,8 +638,6 @@ async def unmute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await message.reply_text("无法获取用户信息")
             return
             
-        # 获取群组信息
-        chat = message.chat
         if not chat:
             await message.reply_text("无法获取群组信息")
             return
