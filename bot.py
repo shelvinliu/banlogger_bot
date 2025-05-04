@@ -594,15 +594,15 @@ async def mute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         # 创建理由选择按钮
         keyboard = [
             [
-                InlineKeyboardButton("广告", callback_data=f"mute_reason|{user.id}|{banned_username}|广告"),
-                InlineKeyboardButton("FUD", callback_data=f"mute_reason|{user.id}|{banned_username}|FUD")
+                InlineKeyboardButton("广告", callback_data=f"mute_reason|{user.id}|{user.first_name}|广告"),
+                InlineKeyboardButton("FUD", callback_data=f"mute_reason|{user.id}|{user.first_name}|FUD")
             ],
             [
-                InlineKeyboardButton("带节奏", callback_data=f"mute_reason|{user.id}|{banned_username}|带节奏"),
-                InlineKeyboardButton("攻击他人", callback_data=f"mute_reason|{user.id}|{banned_username}|攻击他人")
+                InlineKeyboardButton("带节奏", callback_data=f"mute_reason|{user.id}|{user.first_name}|带节奏"),
+                InlineKeyboardButton("攻击他人", callback_data=f"mute_reason|{user.id}|{user.first_name}|攻击他人")
             ],
             [
-                InlineKeyboardButton("诈骗", callback_data=f"mute_reason|{user.id}|{banned_username}|诈骗")
+                InlineKeyboardButton("诈骗", callback_data=f"mute_reason|{user.id}|{user.first_name}|诈骗")
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
