@@ -348,14 +348,16 @@ async def kick_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         if not message:
             return
             
-        # 获取回复的消息
+        # 获取回复的消息或通过@username
         reply_to_message = message.reply_to_message
-        if not reply_to_message:
-            await message.reply_text("请回复要踢出的用户消息")
-            return
-            
-        # 获取用户信息
-        user = reply_to_message.from_user
+        user = None
+        if reply_to_message:
+            user = reply_to_message.from_user
+        elif context.args:
+            username = context.args[0].lstrip('@')
+            user = await context.bot.get_chat_member(chat.id, username)
+            user = user.user if user else None
+        
         if not user:
             await message.reply_text("无法获取用户信息")
             return
@@ -529,14 +531,16 @@ async def mute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         if not message:
             return
             
-        # 获取回复的消息
+        # 获取回复的消息或通过@username
         reply_to_message = message.reply_to_message
-        if not reply_to_message:
-            await message.reply_text("请回复要禁言的用户消息")
-            return
-            
-        # 获取用户信息
-        user = reply_to_message.from_user
+        user = None
+        if reply_to_message:
+            user = reply_to_message.from_user
+        elif context.args:
+            username = context.args[0].lstrip('@')
+            user = await context.bot.get_chat_member(chat.id, username)
+            user = user.user if user else None
+        
         if not user:
             await message.reply_text("无法获取用户信息")
             return
@@ -548,12 +552,12 @@ async def mute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             return
             
         # 获取禁言时间
-        if not context.args:
-            await message.reply_text("请指定禁言时间，例如: /m 1d2h30m")
+        if len(context.args) < 2:
+            await message.reply_text("请指定禁言时间，例如: /m @username 1d2h30m")
             return
-            
+        
         # 解析禁言时间
-        duration_str = " ".join(context.args)
+        duration_str = " ".join(context.args[1:])
         try:
             # 解析时间格式
             days = 0
@@ -603,7 +607,6 @@ async def mute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             user_id=user.id,
             permissions=ChatPermissions(
                 can_send_messages=False,
-                can_send_media_messages=False,
                 can_send_other_messages=False,
                 can_add_web_page_previews=False
             ),
@@ -632,14 +635,16 @@ async def unmute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if not message:
             return
             
-        # 获取回复的消息
+        # 获取回复的消息或通过@username
         reply_to_message = message.reply_to_message
-        if not reply_to_message:
-            await message.reply_text("请回复要解除禁言的用户消息")
-            return
-            
-        # 获取用户信息
-        user = reply_to_message.from_user
+        user = None
+        if reply_to_message:
+            user = reply_to_message.from_user
+        elif context.args:
+            username = context.args[0].lstrip('@')
+            user = await context.bot.get_chat_member(chat.id, username)
+            user = user.user if user else None
+        
         if not user:
             await message.reply_text("无法获取用户信息")
             return
@@ -677,7 +682,6 @@ async def unmute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             user_id=user.id,
             permissions=ChatPermissions(
                 can_send_messages=True,
-                can_send_media_messages=True,
                 can_send_other_messages=True,
                 can_add_web_page_previews=True
             )
