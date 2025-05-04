@@ -594,15 +594,15 @@ async def mute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         # 创建理由选择按钮
         keyboard = [
             [
-                InlineKeyboardButton("广告", callback_data=f"mute_reason|{user.id}|{user.first_name}|广告"),
-                InlineKeyboardButton("FUD", callback_data=f"mute_reason|{user.id}|{user.first_name}|FUD")
+                InlineKeyboardButton("广告", callback_data=f"mute_reason|{user.id}|{user.username}|广告"),
+                InlineKeyboardButton("FUD", callback_data=f"mute_reason|{user.id}|{user.username}|FUD")
             ],
             [
-                InlineKeyboardButton("带节奏", callback_data=f"mute_reason|{user.id}|{user.first_name}|带节奏"),
-                InlineKeyboardButton("攻击他人", callback_data=f"mute_reason|{user.id}|{user.first_name}|攻击他人")
+                InlineKeyboardButton("带节奏", callback_data=f"mute_reason|{user.id}|{user.username}|带节奏"),
+                InlineKeyboardButton("攻击他人", callback_data=f"mute_reason|{user.id}|{user.username}|攻击他人")
             ],
             [
-                InlineKeyboardButton("诈骗", callback_data=f"mute_reason|{user.id}|{user.first_name}|诈骗")
+                InlineKeyboardButton("诈骗", callback_data=f"mute_reason|{user.id}|{user.username}|诈骗")
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -623,11 +623,11 @@ async def mute_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     await query.answer()
     
     try:
-        action, user_id_str, user_name, reason = query.data.split("|")
+        action, user_id_str, username, reason = query.data.split("|")
         muted_user_id = int(user_id_str)
-        banned_user_name = user_name  # Display name
         last_mute = context.chat_data.get("last_mute", {})  # Ensure last_mute is defined
-        banned_username = f"@{user_name}" if not user_name.startswith("@") else user_name  # Use existing username with @
+        banned_user_name = last_mute.get("banned_user_name", "")  # Get display name from context
+        banned_username = f"@{username}" if username else "无"  # Use username from callback data
     except ValueError:
         return  # 无效的回调数据，直接返回
     
@@ -647,8 +647,8 @@ async def mute_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
                 "用户名": banned_username,
                 "名称": banned_user_name,
                 "操作管理": query.from_user.full_name,
-                "理由": f"{reason} - 禁言 {last_mute.get('duration', '')}",  # Include duration in reason
-                "操作": "禁言"
+                "理由": reason,
+                "操作": f"禁言 {last_mute.get('duration', '')}"  # Move duration to operation field
             }
         )
         
