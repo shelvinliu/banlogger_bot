@@ -1680,7 +1680,6 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(CallbackQueryHandler(ban_reason_handler, pattern="^ban_reason"))
         bot_app.add_handler(CallbackQueryHandler(mute_reason_handler, pattern="^mute_reason"))
         bot_app.add_handler(CallbackQueryHandler(reply_callback_handler, pattern="^reply:"))
-        bot_app.add_handler(CallbackQueryHandler(kick_reason_handler, pattern="^kick_reason"))
         
         # 添加消息处理器 - 调整顺序和过滤器
         # 1. 首先处理回复消息
