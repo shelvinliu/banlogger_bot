@@ -627,11 +627,11 @@ async def mute_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
                 "操作时间": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S"),
                 "电报群组名称": last_action.get("chat_title", query.message.chat.title),
                 "用户ID": muted_user_id,
-                "用户名": user_name,
+                "用户名": f"@{user_name}",  # Ensure username is prefixed with @
                 "名称": user_name,
                 "操作管理": query.from_user.full_name,
-                "理由": reason,
-                "操作": f"禁言 {last_action.get('duration', '')}"
+                "理由": f"{reason} - 禁言 {last_action.get('duration', '')}",  # Include duration in reason
+                "操作": "禁言"
             }
         )
         
@@ -659,6 +659,7 @@ async def mute_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception as e:
         error_msg = await query.message.reply_text(f"❌ 操作失败: {str(e)}")
         asyncio.create_task(delete_message_later(error_msg))
+        asyncio.create_task(delete_message_later(query.message))
         logger.error(f"禁言用户失败: {e}")
 
 async def unmute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
