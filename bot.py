@@ -277,7 +277,7 @@ async def check_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> boo
         logger.error(f"Error checking admin status: {e}")
         return False
 
-async def delete_message_later(message, delay: int = 30):
+async def delete_message_later(message, delay: int = 120):  # Set delay to 2 minutes
     """在指定时间后删除消息"""
     await asyncio.sleep(delay)
     try:
@@ -522,18 +522,18 @@ async def mute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             
         # 获取回复的消息
         reply_to_message = message.reply_to_message
-        user = None
-        chat = message.chat
-        if reply_to_message:
-            user = reply_to_message.from_user
-        else:
+        if not reply_to_message:
             await message.reply_text("请回复要禁言的用户消息")
             return
-        
+            
+        # 获取用户信息
+        user = reply_to_message.from_user
         if not user:
             await message.reply_text("无法获取用户信息")
             return
             
+        # 获取群组信息
+        chat = message.chat
         if not chat:
             await message.reply_text("无法获取群组信息")
             return
@@ -567,49 +567,99 @@ async def mute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             await message.reply_text("时间格式错误，请使用例如: 1d2h30m 的格式")
             return
             
-        # 创建禁言记录
-        record = {
-            "操作时间": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S"),
-            "电报群组名称": chat.title,
-            "用户ID": str(user.id),
-            "用户名": user.username or "无",
-            "名称": user.first_name,
-            "操作管理": message.from_user.first_name,
-            "理由": f"禁言 {duration_str}",
-            "操作": "禁言"
+        # 保存操作上下文
+        context.chat_data["last_mute"] = {
+            "operator_id": message.from_user.id,
+            "chat_title": chat.title,
+            "user_id": user.id,
+            "user_name": user.first_name,
+            "duration": duration_str
         }
         
-        # 保存到 Google Sheet
-        success = await sheets_storage.save_to_sheet(record)
-        if not success:
-            await message.reply_text("保存禁言记录失败")
-            return
-            
-        # 添加到内存中的记录列表
-        ban_records.append(record)
+        # 创建理由选择按钮
+        keyboard = [
+            [
+                InlineKeyboardButton("广告", callback_data=f"mute_reason|{user.id}|{user.first_name}|广告"),
+                InlineKeyboardButton("FUD", callback_data=f"mute_reason|{user.id}|{user.first_name}|FUD")
+            ],
+            [
+                InlineKeyboardButton("带节奏", callback_data=f"mute_reason|{user.id}|{user.first_name}|带节奏"),
+                InlineKeyboardButton("攻击他人", callback_data=f"mute_reason|{user.id}|{user.first_name}|攻击他人")
+            ],
+            [
+                InlineKeyboardButton("诈骗", callback_data=f"mute_reason|{user.id}|{user.first_name}|诈骗")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # 禁言用户
-        await context.bot.restrict_chat_member(
-            chat_id=chat.id,
-            user_id=user.id,
-            permissions=ChatPermissions(
-                can_send_messages=False,
-                can_send_other_messages=False,
-                can_add_web_page_previews=False
-            ),
-            until_date=until_date
-        )
-        
-        # 发送确认消息
+        # 发送选择理由的消息
         await message.reply_text(
-            f"✅ 已禁言用户 {user.first_name} (ID: {user.id})\n"
-            f"⏰ 时长: {duration_str}\n"
-            f"📝 时间: {record['操作时间']}"
+            f"请选择禁言用户 {user.first_name} 的理由：",
+            reply_markup=reply_markup
         )
         
     except Exception as e:
         logger.error(f"处理禁言命令时出错: {e}")
         await message.reply_text("处理禁言命令时出错")
+
+async def mute_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """处理禁言原因选择"""
+    query = update.callback_query
+    await query.answer()
+    
+    try:
+        action, user_id_str, user_name, reason = query.data.split("|")
+        muted_user_id = int(user_id_str)
+    except ValueError:
+        return  # 无效的回调数据，直接返回
+    
+    # 获取操作上下文
+    last_action = context.chat_data.get("last_mute", {})
+    
+    # 验证操作权限
+    if query.from_user.id != last_action.get("operator_id"):
+        return  # 只有执行操作的管理员能选择原因，其他人点击不做任何处理
+    
+    # 保存记录
+    try:
+        success = await sheets_storage.save_to_sheet(
+            {
+                "操作时间": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S"),
+                "电报群组名称": last_action.get("chat_title", query.message.chat.title),
+                "用户ID": muted_user_id,
+                "用户名": user_name,
+                "名称": user_name,
+                "操作管理": query.from_user.full_name,
+                "理由": reason,
+                "操作": f"禁言 {last_action.get('duration', '')}"
+            }
+        )
+        
+        if success:
+            # 禁言用户
+            await context.bot.restrict_chat_member(
+                chat_id=query.message.chat.id,
+                user_id=muted_user_id,
+                permissions=ChatPermissions(
+                    can_send_messages=False,
+                    can_send_other_messages=False,
+                    can_add_web_page_previews=False
+                ),
+                until_date=datetime.now(TIMEZONE) + timedelta(minutes=1)  # Example duration
+            )
+            
+            confirm_msg = await query.message.reply_text(f"✅ 已禁言用户 {user_name} - 理由: {reason}")
+            asyncio.create_task(delete_message_later(confirm_msg))
+            asyncio.create_task(delete_message_later(query.message))
+        else:
+            error_msg = await query.message.reply_text("❌ 保存记录失败")
+            asyncio.create_task(delete_message_later(error_msg))
+            asyncio.create_task(delete_message_later(query.message))
+        
+    except Exception as e:
+        error_msg = await query.message.reply_text(f"❌ 操作失败: {str(e)}")
+        asyncio.create_task(delete_message_later(error_msg))
+        logger.error(f"禁言用户失败: {e}")
 
 async def unmute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """处理解除禁言命令"""
