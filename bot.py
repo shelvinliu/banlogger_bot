@@ -633,6 +633,8 @@ async def mute_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     # 验证操作权限
     if query.from_user.id != last_mute.get("operator_id"):
+        error_msg = await query.message.reply_text("⚠️ 只有执行禁言的管理员能选择原因")
+        asyncio.create_task(delete_message_later(error_msg))
         return  # 只有执行操作的管理员能选择原因，其他人点击不做任何处理
     
     # 保存记录
@@ -1737,7 +1739,7 @@ async def lifespan(app: FastAPI):
         
         # 添加回调处理器
         bot_app.add_handler(CallbackQueryHandler(ban_reason_handler, pattern="^ban_reason"))
-        bot_app.add_handler(CallbackQueryHandler(ban_reason_handler, pattern="^mute_reason"))
+        bot_app.add_handler(CallbackQueryHandler(mute_reason_handler, pattern="^mute_reason"))
         bot_app.add_handler(CallbackQueryHandler(reply_callback_handler, pattern="^reply:"))
         bot_app.add_handler(CallbackQueryHandler(kick_reason_handler, pattern="^kick_reason"))
         
