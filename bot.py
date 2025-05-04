@@ -1477,27 +1477,22 @@ async def unban_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         if not message:
             return
             
-        # 获取回复的消息
-        reply_to_message = message.reply_to_message
-        if not reply_to_message:
-            await message.reply_text("请回复要解除封禁的用户消息")
-            return
-            
-        # 获取用户信息
-        user = reply_to_message.from_user
+        # 获取通过@username
+        user = None
+        chat = message.chat
+        if context.args:
+            username = context.args[0].lstrip('@')
+            user = await context.bot.get_chat_member(chat.id, username)
+            user = user.user if user else None
+        
         if not user:
             await message.reply_text("无法获取用户信息")
             return
             
-        # 获取群组信息
-        chat = message.chat
         if not chat:
             await message.reply_text("无法获取群组信息")
             return
             
-        # 获取解除封禁理由
-        reason = " ".join(context.args) if context.args else "无理由"
-        
         # 创建解除封禁记录
         record = {
             "操作时间": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S"),
@@ -1506,7 +1501,7 @@ async def unban_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             "用户名": user.username or "无",
             "名称": user.first_name,
             "操作管理": message.from_user.first_name,
-            "理由": reason,
+            "理由": "解除封禁",
             "操作": "解除封禁"
         }
         
@@ -1519,10 +1514,15 @@ async def unban_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         # 添加到内存中的记录列表
         ban_records.append(record)
         
+        # 解除封禁
+        await context.bot.unban_chat_member(
+            chat_id=chat.id,
+            user_id=user.id
+        )
+        
         # 发送确认消息
         await message.reply_text(
             f"✅ 已解除封禁用户 {user.first_name} (ID: {user.id})\n"
-            f"📝 理由: {reason}\n"
             f"⏰ 时间: {record['操作时间']}"
         )
         
@@ -1639,6 +1639,7 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(CommandHandler("noon", noon_greeting_handler))
         bot_app.add_handler(CommandHandler("night", goodnight_greeting_handler))
         bot_app.add_handler(CommandHandler("comfort", comfort_handler))
+        bot_app.add_handler(CommandHandler("ub", unban_handler))
         
         # 添加回调处理器
         bot_app.add_handler(CallbackQueryHandler(ban_reason_handler, pattern="^ban_reason"))
