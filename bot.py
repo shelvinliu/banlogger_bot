@@ -410,6 +410,7 @@ async def kick_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         action, user_id_str, user_name, reason = query.data.split("|")
         kicked_user_id = int(user_id_str)
+        banned_username = f"@{user_name}" if not user_name.startswith("@") else user_name  # Use existing username with @
     except ValueError:
         return  # 无效的回调数据，直接返回
     
@@ -427,7 +428,7 @@ async def kick_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
                 "操作时间": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S"),
                 "电报群组名称": last_action.get("chat_title", query.message.chat.title),
                 "用户ID": kicked_user_id,
-                "用户名": user_name,
+                "用户名": banned_username,
                 "名称": user_name,
                 "操作管理": query.from_user.full_name,
                 "理由": reason,
@@ -466,7 +467,7 @@ async def ban_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         banned_user_id = int(user_id_str)
         banned_user_name = user_name  # Display name
         last_ban = context.chat_data.get("last_ban", {})  # Ensure last_ban is defined
-        banned_username = last_ban.get("target_username", "无")  # Use existing username with @
+        banned_username = f"@{user_name}" if not user_name.startswith("@") else user_name  # Use existing username with @
     except ValueError:
         error_msg = await query.message.reply_text("⚠️ 无效的回调数据")
         asyncio.create_task(delete_message_later(error_msg))
@@ -626,7 +627,7 @@ async def mute_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         muted_user_id = int(user_id_str)
         banned_user_name = user_name  # Display name
         last_mute = context.chat_data.get("last_mute", {})  # Ensure last_mute is defined
-        banned_username = last_mute.get("target_username", "无")  # Use existing username with @
+        banned_username = f"@{user_name}" if not user_name.startswith("@") else user_name  # Use existing username with @
     except ValueError:
         return  # 无效的回调数据，直接返回
     
