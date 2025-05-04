@@ -487,16 +487,36 @@ async def ban_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 "操作时间": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S"),
                 "电报群组名称": last_action.get("chat_title", query.message.chat.title),
                 "用户ID": banned_user_id,
-                "用户名": user_name,
+                "用户名": f"@{user_name}",  # Ensure username is prefixed with @
                 "名称": user_name,
                 "操作管理": query.from_user.full_name,
-                "理由": reason,  # 直接使用理由，不添加操作类型
+                "理由": f"{reason} - {action_type} {last_action.get('duration', '')}",  # Include duration in reason
                 "操作": action_type
             }
         )
         
         if success:
-            confirm_msg = await query.message.reply_text(f"✅ 已记录: {user_name} - {reason}")
+            if action_type == "封禁":
+                # 封禁用户
+                await context.bot.ban_chat_member(
+                    chat_id=query.message.chat.id,
+                    user_id=banned_user_id,
+                    revoke_messages=True
+                )
+            else:
+                # 禁言用户
+                await context.bot.restrict_chat_member(
+                    chat_id=query.message.chat.id,
+                    user_id=banned_user_id,
+                    permissions=ChatPermissions(
+                        can_send_messages=False,
+                        can_send_other_messages=False,
+                        can_add_web_page_previews=False
+                    ),
+                    until_date=datetime.now(TIMEZONE) + timedelta(minutes=1)  # Example duration
+                )
+            
+            confirm_msg = await query.message.reply_text(f"✅ 已{action_type}用户 {user_name} - 理由: {reason}")
             asyncio.create_task(delete_message_later(confirm_msg))
         else:
             error_msg = await query.message.reply_text("❌ 保存记录失败")
@@ -505,9 +525,9 @@ async def ban_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         asyncio.create_task(delete_message_later(query.message))
         
     except Exception as e:
-        error_msg = await query.message.reply_text(f"❌ 保存失败: {str(e)}")
+        error_msg = await query.message.reply_text(f"❌ 操作失败: {str(e)}")
         asyncio.create_task(delete_message_later(error_msg))
-        logger.error(f"保存原因失败: {e}")
+        logger.error(f"{action_type}用户失败: {e}")
 
 async def mute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """处理禁言命令"""
@@ -642,8 +662,17 @@ async def mute_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
                 user_id=muted_user_id,
                 permissions=ChatPermissions(
                     can_send_messages=False,
+                    can_send_audios=False,
+                    can_send_documents=False,
+                    can_send_photos=False,
+                    can_send_videos=False,
+                    can_send_video_notes=False,
+                    can_send_voice_notes=False,
                     can_send_other_messages=False,
-                    can_add_web_page_previews=False
+                    can_add_web_page_previews=False,
+                    can_invite_users=False,
+                    can_pin_messages=False,
+                    can_change_info=False,
                 ),
                 until_date=datetime.now(TIMEZONE) + timedelta(minutes=1)  # Example duration
             )
@@ -716,8 +745,17 @@ async def unmute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             user_id=user.id,
             permissions=ChatPermissions(
                 can_send_messages=True,
-                can_send_other_messages=True,
-                can_add_web_page_previews=True
+                can_send_audios=True,
+                can_send_documents=False,
+                can_send_photos=True,
+                can_send_videos=False,
+                can_send_video_notes=False,
+                can_send_voice_notes=False,
+                can_send_other_messages=False,
+                can_add_web_page_previews=False,
+                can_invite_users=False,
+                can_pin_messages=False,
+                can_change_info=False,
             )
         )
         
