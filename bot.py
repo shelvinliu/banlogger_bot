@@ -520,16 +520,15 @@ async def mute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         if not message:
             return
             
-        # 获取回复的消息或通过@username
+        # 获取回复的消息
         reply_to_message = message.reply_to_message
         user = None
         chat = message.chat
         if reply_to_message:
             user = reply_to_message.from_user
-        elif context.args:
-            username = context.args[0].lstrip('@')
-            user = await context.bot.get_chat_member(chat.id, username)
-            user = user.user if user else None
+        else:
+            await message.reply_text("请回复要禁言的用户消息")
+            return
         
         if not user:
             await message.reply_text("无法获取用户信息")
@@ -540,12 +539,12 @@ async def mute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             return
             
         # 获取禁言时间
-        if len(context.args) < 2:
-            await message.reply_text("请指定禁言时间，例如: /m @username 1d2h30m")
+        if len(context.args) < 1:
+            await message.reply_text("请指定禁言时间，例如: /m 1d2h30m")
             return
         
         # 解析禁言时间
-        duration_str = " ".join(context.args[1:])
+        duration_str = " ".join(context.args)
         try:
             # 解析时间格式
             days = 0
@@ -623,13 +622,10 @@ async def unmute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if not message:
             return
             
-        # 获取回复的消息或通过@username
-        reply_to_message = message.reply_to_message
+        # 获取通过@username
         user = None
         chat = message.chat
-        if reply_to_message:
-            user = reply_to_message.from_user
-        elif context.args:
+        if context.args:
             username = context.args[0].lstrip('@')
             user = await context.bot.get_chat_member(chat.id, username)
             user = user.user if user else None
