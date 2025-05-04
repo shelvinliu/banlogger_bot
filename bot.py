@@ -465,6 +465,7 @@ async def ban_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         _, user_id_str, user_name, reason = query.data.split("|")
         banned_user_id = int(user_id_str)
         banned_user_name = user_name  # Display name
+        last_ban = context.chat_data.get("last_ban", {})  # Ensure last_ban is defined
         banned_username = last_ban.get("target_username", "无")  # Use existing username with @
     except ValueError:
         error_msg = await query.message.reply_text("⚠️ 无效的回调数据")
@@ -472,7 +473,6 @@ async def ban_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
     
     # 验证操作权限
-    last_ban = context.chat_data.get("last_ban", {})
     if query.from_user.id != last_ban.get("operator_id"):
         error_msg = await query.message.reply_text("⚠️ 只有执行踢出的管理员能选择原因")
         asyncio.create_task(delete_message_later(error_msg))
@@ -625,15 +625,13 @@ async def mute_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         action, user_id_str, user_name, reason = query.data.split("|")
         muted_user_id = int(user_id_str)
         banned_user_name = user_name  # Display name
-        banned_username = f"@{user_name}"  # Unique handle
+        last_mute = context.chat_data.get("last_mute", {})  # Ensure last_mute is defined
+        banned_username = last_mute.get("target_username", "无")  # Use existing username with @
     except ValueError:
         return  # 无效的回调数据，直接返回
     
-    # 获取操作上下文
-    last_action = context.chat_data.get("last_mute", {})
-    
     # 验证操作权限
-    if query.from_user.id != last_action.get("operator_id"):
+    if query.from_user.id != last_mute.get("operator_id"):
         return  # 只有执行操作的管理员能选择原因，其他人点击不做任何处理
     
     # 保存记录
@@ -641,12 +639,12 @@ async def mute_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         success = await sheets_storage.save_to_sheet(
             {
                 "操作时间": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S"),
-                "电报群组名称": last_action.get("chat_title", query.message.chat.title),
+                "电报群组名称": last_mute.get("chat_title", query.message.chat.title),
                 "用户ID": muted_user_id,
                 "用户名": banned_username,
                 "名称": banned_user_name,
                 "操作管理": query.from_user.full_name,
-                "理由": f"{reason} - 禁言 {last_action.get('duration', '')}",  # Include duration in reason
+                "理由": f"{reason} - 禁言 {last_mute.get('duration', '')}",  # Include duration in reason
                 "操作": "禁言"
             }
         )
