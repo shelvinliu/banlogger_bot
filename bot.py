@@ -1687,7 +1687,7 @@ async def lottery_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     try:
         # 检查参数
         if len(context.args) != 2:
-            await update.message.reply_text("❌ 请使用正确的格式：/抽奖 <中奖人数> <总人数>")
+            await update.message.reply_text("❌ 请使用正确的格式：/draw <中奖人数> <总人数>")
             return
             
         # 解析参数
@@ -1763,7 +1763,7 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(CommandHandler("night", goodnight_greeting_handler))
         bot_app.add_handler(CommandHandler("comfort", comfort_handler))
         bot_app.add_handler(CommandHandler("ub", unban_handler))
-        bot_app.add_handler(CommandHandler("抽奖", lottery_handler))  # 添加抽奖命令处理器
+        bot_app.add_handler(CommandHandler("draw", lottery_handler))  # 使用英文命令名
         
         # 添加回调处理器
         bot_app.add_handler(CallbackQueryHandler(ban_reason_handler, pattern="^ban_reason"))
