@@ -1677,6 +1677,65 @@ async def forward_message_handler(update: Update, context: ContextTypes.DEFAULT_
         except Exception as e:
             logger.error(f"处理转发消息时出错: {e}")
 
+async def lottery_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """处理抽奖命令"""
+    if not await check_admin(update, context):
+        msg = await update.message.reply_text("❌ 只有管理员可以使用此命令")
+        asyncio.create_task(delete_message_later(msg))
+        return
+        
+    try:
+        # 检查参数
+        if len(context.args) != 2:
+            await update.message.reply_text("❌ 请使用正确的格式：/抽奖 <中奖人数> <总人数>")
+            return
+            
+        # 解析参数
+        try:
+            winners_count = int(context.args[0])
+            total_count = int(context.args[1])
+        except ValueError:
+            await update.message.reply_text("❌ 请输入有效的数字")
+            return
+            
+        # 验证参数
+        if winners_count <= 0 or total_count <= 0:
+            await update.message.reply_text("❌ 人数必须大于0")
+            return
+            
+        if winners_count > total_count:
+            await update.message.reply_text("❌ 中奖人数不能大于总人数")
+            return
+            
+        # 生成随机中奖号码
+        winners = sorted(random.sample(range(1, total_count + 1), winners_count))
+        
+        # 构建结果消息
+        result_message = (
+            f"🎉 抽奖结果 🎉\n\n"
+            f"📊 总人数：{total_count}\n"
+            f"🎁 中奖人数：{winners_count}\n\n"
+            f"🏆 中奖号码：\n"
+        )
+        
+        # 添加中奖号码，每行显示5个
+        for i in range(0, len(winners), 5):
+            line = winners[i:i+5]
+            result_message += " ".join(f"{num:4d}" for num in line) + "\n"
+            
+        # 添加时间戳
+        result_message += f"\n⏰ 抽奖时间：{datetime.now(TIMEZONE).strftime('%Y-%m-%d %H:%M:%S')}"
+        
+        # 发送结果
+        sent_message = await update.message.reply_text(result_message)
+        
+        # 5分钟后删除消息
+        asyncio.create_task(delete_message_later(sent_message, delay=300))
+        
+    except Exception as e:
+        logger.error(f"处理抽奖命令时出错: {e}")
+        await update.message.reply_text("❌ 处理抽奖命令时出错")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
@@ -1704,6 +1763,7 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(CommandHandler("night", goodnight_greeting_handler))
         bot_app.add_handler(CommandHandler("comfort", comfort_handler))
         bot_app.add_handler(CommandHandler("ub", unban_handler))
+        bot_app.add_handler(CommandHandler("抽奖", lottery_handler))  # 添加抽奖命令处理器
         
         # 添加回调处理器
         bot_app.add_handler(CallbackQueryHandler(ban_reason_handler, pattern="^ban_reason"))
