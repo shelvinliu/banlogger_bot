@@ -366,9 +366,13 @@ async def ban_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await message.reply_text("无法获取群组信息")
             return
             
-        # 获取封禁理由
-        reason = " ".join(context.args) if context.args else "无理由"
-        
+        # 检查是否已经在处理这个用户
+        if "last_ban" in context.chat_data:
+            last_ban = context.chat_data["last_ban"]
+            if last_ban.get("user_id") == user.id and last_ban.get("operator_id") != message.from_user.id:
+                # 如果其他管理员正在处理这个用户，直接返回
+                return
+                
         # 创建封禁记录
         banned_user_name = user.first_name  # Display name
         banned_username = f"@{user.username}" if user.username else "无"  # Use existing username with @
@@ -377,7 +381,8 @@ async def ban_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             "chat_title": chat.title,
             "user_id": user.id,
             "banned_user_name": banned_user_name,
-            "banned_username": banned_username
+            "banned_username": banned_username,
+            "message_id": message.message_id  # 添加消息ID
         }
         
         # 创建理由选择按钮
@@ -397,10 +402,13 @@ async def ban_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         # 发送选择理由的消息
-        await message.reply_text(
+        sent_message = await message.reply_text(
             f"请选择封禁用户 {user.first_name} 的理由：",
             reply_markup=reply_markup
         )
+        
+        # 30秒后删除消息
+        asyncio.create_task(delete_message_later(sent_message, delay=30))
         
     except Exception as e:
         logger.error(f"处理封禁命令时出错: {e}")
@@ -414,56 +422,66 @@ async def ban_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         action, user_id_str, username, reason = query.data.split("|")
         banned_user_id = int(user_id_str)
-        last_ban = context.chat_data.get("last_ban", {})  # Ensure last_ban is defined
-        banned_user_name = last_ban.get("banned_user_name", "")  # Get display name from context
-        banned_username = f"@{username}" if username else "无"  # Use username from callback data
-    except ValueError:
-        error_msg = await query.message.reply_text("⚠️ 无效的回调数据")
-        asyncio.create_task(delete_message_later(error_msg))
-        return
-    
-    # 验证操作权限
-    if query.from_user.id != last_ban.get("operator_id"):
-        error_msg = await query.message.reply_text("⚠️ 只有执行封禁的管理员能选择原因")
-        asyncio.create_task(delete_message_later(error_msg))
-        return
-    
-    # 保存封禁记录
-    try:
-        success = await sheets_storage.save_to_sheet(
-            {
-                "操作时间": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S"),
-                "电报群组名称": query.message.chat.title,
-                "用户ID": banned_user_id,
-                "用户名": banned_username,
-                "名称": banned_user_name,
-                "操作管理": query.from_user.full_name,
-                "理由": reason,
-                "操作": "封禁"
-            }
-        )
+        last_ban = context.chat_data.get("last_ban", {})
         
-        if success:
-            # 封禁用户并删除消息
-            await context.bot.ban_chat_member(
-                chat_id=query.message.chat.id,
-                user_id=banned_user_id,
-                revoke_messages=True  # 删除用户的所有消息
+        # 检查是否是同一个操作
+        if not last_ban or last_ban.get("user_id") != banned_user_id:
+            return  # 如果不是同一个操作，直接返回
+            
+        # 验证操作权限
+        if query.from_user.id != last_ban.get("operator_id"):
+            return  # 如果不是执行操作的管理员，直接返回，不显示任何消息
+            
+        banned_user_name = last_ban.get("banned_user_name", "")
+        banned_username = f"@{username}" if username else "无"
+        
+        # 保存封禁记录
+        try:
+            success = await sheets_storage.save_to_sheet(
+                {
+                    "操作时间": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S"),
+                    "电报群组名称": query.message.chat.title,
+                    "用户ID": banned_user_id,
+                    "用户名": banned_username,
+                    "名称": banned_user_name,
+                    "操作管理": query.from_user.full_name,
+                    "理由": reason,
+                    "操作": "封禁"
+                }
             )
             
-            confirm_msg = await query.message.reply_text(f"✅ 已封禁用户 {banned_user_name} 并删除其消息 - 理由: {reason}")
-            asyncio.create_task(delete_message_later(confirm_msg))
-            asyncio.create_task(delete_message_later(query.message))
-        else:
-            error_msg = await query.message.reply_text("❌ 保存记录失败")
-            asyncio.create_task(delete_message_later(error_msg))
-            asyncio.create_task(delete_message_later(query.message))
-        
-    except Exception as e:
-        error_msg = await query.message.reply_text(f"❌ 保存失败: {str(e)}")
-        asyncio.create_task(delete_message_later(error_msg))
-        asyncio.create_task(delete_message_later(query.message))
-        logger.error(f"保存封禁原因失败: {e}")
+            if success:
+                # 封禁用户并删除消息
+                await context.bot.ban_chat_member(
+                    chat_id=query.message.chat.id,
+                    user_id=banned_user_id,
+                    revoke_messages=True  # 删除用户的所有消息
+                )
+            
+                # 立即删除选择理由的消息
+                await query.message.delete()
+                
+                # 发送确认消息并立即删除
+                confirm_msg = await query.message.reply_text(f"✅ 已封禁用户 {banned_user_name} 并删除其消息 - 理由: {reason}")
+                await asyncio.sleep(2)  # 等待2秒让用户看到确认消息
+                await confirm_msg.delete()
+                
+                # 清理操作数据
+                if "last_ban" in context.chat_data:
+                    del context.chat_data["last_ban"]
+            else:
+                error_msg = await query.message.reply_text("❌ 保存记录失败")
+                asyncio.create_task(delete_message_later(error_msg, delay=10))  # 错误消息10秒后删除
+                asyncio.create_task(delete_message_later(query.message, delay=10))
+            
+        except Exception as e:
+            error_msg = await query.message.reply_text(f"❌ 保存失败: {str(e)}")
+            asyncio.create_task(delete_message_later(error_msg, delay=10))  # 错误消息10秒后删除
+            asyncio.create_task(delete_message_later(query.message, delay=10))
+            logger.error(f"保存封禁原因失败: {e}")
+            
+    except ValueError:
+        return  # 无效的回调数据，直接返回
 
 async def mute_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """处理禁言命令"""
@@ -1481,9 +1499,13 @@ async def ban_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await message.reply_text("无法获取群组信息")
             return
             
-        # 获取封禁理由
-        reason = " ".join(context.args) if context.args else "无理由"
-        
+        # 检查是否已经在处理这个用户
+        if "last_ban" in context.chat_data:
+            last_ban = context.chat_data["last_ban"]
+            if last_ban.get("user_id") == user.id and last_ban.get("operator_id") != message.from_user.id:
+                # 如果其他管理员正在处理这个用户，直接返回
+                return
+                
         # 创建封禁记录
         banned_user_name = user.first_name  # Display name
         banned_username = f"@{user.username}" if user.username else "无"  # Use existing username with @
@@ -1492,7 +1514,8 @@ async def ban_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             "chat_title": chat.title,
             "user_id": user.id,
             "banned_user_name": banned_user_name,
-            "banned_username": banned_username
+            "banned_username": banned_username,
+            "message_id": message.message_id  # 添加消息ID
         }
         
         # 创建理由选择按钮
@@ -1512,10 +1535,13 @@ async def ban_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         # 发送选择理由的消息
-        await message.reply_text(
+        sent_message = await message.reply_text(
             f"请选择封禁用户 {user.first_name} 的理由：",
             reply_markup=reply_markup
         )
+        
+        # 30秒后删除消息
+        asyncio.create_task(delete_message_later(sent_message, delay=30))
         
     except Exception as e:
         logger.error(f"处理封禁命令时出错: {e}")
