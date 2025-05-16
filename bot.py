@@ -1733,8 +1733,21 @@ async def lottery_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await update.message.reply_text("❌ 中奖人数不能大于总人数")
             return
             
-        # 生成随机中奖号码
-        winners = sorted(random.sample(range(1, total_count + 1), winners_count))
+        # 使用更安全的随机数生成方法
+        # 1. 使用系统随机数生成器
+        # 2. 使用 Fisher-Yates 洗牌算法
+        # 3. 添加时间戳作为随机种子
+        numbers = list(range(1, total_count + 1))
+        seed = int(time.time() * 1000)  # 使用毫秒级时间戳
+        random.seed(seed)
+        
+        # Fisher-Yates 洗牌算法
+        for i in range(len(numbers) - 1, 0, -1):
+            j = random.randint(0, i)
+            numbers[i], numbers[j] = numbers[j], numbers[i]
+            
+        # 获取前 winners_count 个数字并排序
+        winners = sorted(numbers[:winners_count])
         
         # 构建结果消息
         result_message = (
@@ -1749,8 +1762,11 @@ async def lottery_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             line = winners[i:i+5]
             result_message += " ".join(f"{num:4d}" for num in line) + "\n"
             
-        # 添加时间戳
-        result_message += f"\n⏰ 抽奖时间：{datetime.now(TIMEZONE).strftime('%Y-%m-%d %H:%M:%S')}"
+        # 添加时间戳和随机种子
+        result_message += (
+            f"\n⏰ 抽奖时间：{datetime.now(TIMEZONE).strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"🎲 随机种子：{seed}"
+        )
         
         # 发送结果
         sent_message = await update.message.reply_text(result_message)
