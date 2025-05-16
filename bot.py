@@ -33,7 +33,9 @@ class GoogleSheetsStorage:
         self.client = None
         self.ban_sheet = None
         self.reply_sheet = None
+        self.reminder_sheet = None  # 添加提醒记录表
         self.initialized = False
+        self.last_cleanup_date = None  # 添加最后清理日期记录
         
     async def initialize(self):
         """初始化 Google Sheets 客户端"""
@@ -91,6 +93,28 @@ class GoogleSheetsStorage:
                     "关键词", "回复内容", "链接", "链接文本"
                 ])
                 logger.info(f"创建新的关键词回复表: {KEYWORD_REPLIES_SHEET}")
+
+            # 尝试打开或创建提醒记录表
+            try:
+                self.reminder_sheet = self.client.open("DailyReminders").sheet1
+                # 检查是否有表头
+                headers = self.reminder_sheet.row_values(1)
+                if not headers or len(headers) < 2:
+                    # 如果表头不存在或不完整，添加表头
+                    self.reminder_sheet.clear()
+                    self.reminder_sheet.append_row([
+                        "用户ID", "日期"
+                    ])
+                    logger.info("添加提醒记录表表头")
+            except gspread.exceptions.SpreadsheetNotFound:
+                # 如果表不存在，创建新表
+                spreadsheet = self.client.create("DailyReminders")
+                self.reminder_sheet = spreadsheet.sheet1
+                # 添加表头
+                self.reminder_sheet.append_row([
+                    "用户ID", "日期"
+                ])
+                logger.info("创建新的提醒记录表: DailyReminders")
             
             self.initialized = True
             logger.info("Google Sheets 客户端初始化成功")
@@ -98,7 +122,81 @@ class GoogleSheetsStorage:
         except Exception as e:
             logger.error(f"Google Sheets 初始化失败: {e}")
             raise
+
+    async def cleanup_old_reminders(self):
+        """清理旧的提醒记录"""
+        if not self.initialized:
+            await self.initialize()
             
+        try:
+            current_date = datetime.now(TIMEZONE).strftime('%Y-%m-%d')
+            
+            # 如果今天已经清理过，直接返回
+            if self.last_cleanup_date == current_date:
+                return
+                
+            # 获取所有记录
+            records = self.reminder_sheet.get_all_records()
+            
+            # 保留今天的记录
+            today_records = []
+            for record in records:
+                if record.get("日期") == current_date:
+                    today_records.append([record.get("用户ID"), record.get("日期")])
+            
+            # 清空表格
+            self.reminder_sheet.clear()
+            
+            # 重新添加表头
+            self.reminder_sheet.append_row(["用户ID", "日期"])
+            
+            # 添加今天的记录
+            if today_records:
+                self.reminder_sheet.append_rows(today_records)
+            
+            # 更新最后清理日期
+            self.last_cleanup_date = current_date
+            logger.info(f"已清理提醒记录，保留 {len(today_records)} 条今日记录")
+            
+        except Exception as e:
+            logger.error(f"清理提醒记录失败: {e}")
+
+    async def check_daily_reminder(self, user_id: int, date: str) -> bool:
+        """检查用户是否已经收到过今日提醒"""
+        if not self.initialized:
+            await self.initialize()
+            
+        try:
+            # 先尝试清理旧记录
+            await self.cleanup_old_reminders()
+            
+            # 获取所有记录
+            records = self.reminder_sheet.get_all_records()
+            
+            # 检查是否存在匹配的记录
+            for record in records:
+                if str(record.get("用户ID")) == str(user_id) and record.get("日期") == date:
+                    return True
+            return False
+            
+        except Exception as e:
+            logger.error(f"检查提醒记录失败: {e}")
+            return False
+
+    async def save_daily_reminder(self, user_id: int, date: str) -> bool:
+        """保存提醒记录"""
+        if not self.initialized:
+            await self.initialize()
+            
+        try:
+            # 添加新记录
+            self.reminder_sheet.append_row([str(user_id), date])
+            return True
+            
+        except Exception as e:
+            logger.error(f"保存提醒记录失败: {e}")
+            return False
+
     async def get_keyword_replies(self) -> List[Dict[str, str]]:
         """获取关键词回复列表"""
         if not self.initialized:
@@ -1455,18 +1553,16 @@ async def check_and_send_daily_reminder(update: Update, context: ContextTypes.DE
     current_time = datetime.now(TIMEZONE)
     current_date = current_time.strftime('%Y-%m-%d')
     
-    # 检查是否是今天的第一次提醒
-    if user_id not in USER_DAILY_REMINDERS:
-        USER_DAILY_REMINDERS[user_id] = {}
-    
-    if current_date not in USER_DAILY_REMINDERS[user_id]:
+    # 检查是否已经发送过提醒
+    has_reminder = await sheets_storage.check_daily_reminder(user_id, current_date)
+    if not has_reminder:
         # 发送提醒消息
         reminder_msg = await update.message.reply_text(
             "亲，您今天用MyStonks了吗？\n"
             "🔗 https://mystonks.org"
         )
-        # 记录已发送提醒
-        USER_DAILY_REMINDERS[user_id][current_date] = True
+        # 保存提醒记录
+        await sheets_storage.save_daily_reminder(user_id, current_date)
         # 1分钟后删除提醒消息
         asyncio.create_task(delete_message_later(reminder_msg, delay=60))
 
