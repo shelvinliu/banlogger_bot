@@ -131,32 +131,20 @@ class GoogleSheetsStorage:
         try:
             current_date = datetime.now(TIMEZONE).strftime('%Y-%m-%d')
             
-            # 如果今天已经清理过，直接返回
-            if self.last_cleanup_date == current_date:
-                return
-                
             # 获取所有记录
             records = self.reminder_sheet.get_all_records()
             
-            # 保留今天的记录
-            today_records = []
-            for record in records:
-                if record.get("日期") == current_date:
-                    today_records.append([record.get("用户ID"), record.get("日期")])
+            # 检查是否有今天的记录
+            has_today_records = any(record.get("日期") == current_date for record in records)
             
-            # 清空表格
-            self.reminder_sheet.clear()
-            
-            # 重新添加表头
-            self.reminder_sheet.append_row(["用户ID", "日期"])
-            
-            # 添加今天的记录
-            if today_records:
-                self.reminder_sheet.append_rows(today_records)
-            
-            # 更新最后清理日期
-            self.last_cleanup_date = current_date
-            logger.info(f"已清理提醒记录，保留 {len(today_records)} 条今日记录")
+            # 如果没有今天的记录，说明是新的一天，需要清理
+            if not has_today_records:
+                # 清空表格
+                self.reminder_sheet.clear()
+                
+                # 重新添加表头
+                self.reminder_sheet.append_row(["用户ID", "日期"])
+                logger.info("已清理提醒记录，开始新的一天")
             
         except Exception as e:
             logger.error(f"清理提醒记录失败: {e}")
@@ -189,6 +177,12 @@ class GoogleSheetsStorage:
             await self.initialize()
             
         try:
+            # 检查是否已经存在相同的记录
+            records = self.reminder_sheet.get_all_records()
+            for record in records:
+                if str(record.get("用户ID")) == str(user_id) and record.get("日期") == date:
+                    return True  # 如果已存在，直接返回成功
+            
             # 添加新记录
             self.reminder_sheet.append_row([str(user_id), date])
             return True
