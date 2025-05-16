@@ -1570,10 +1570,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     text = update.message.text.strip().lower()  # 转换为小写进行比较
     
-    # 只处理命令
-    if not text.startswith('/'):
-        return
-        
     # 早安关键词（转换为小写进行比较）
     morning_keywords = [kw.lower() for kw in ["早安", "早上好", "good morning", "morning", "gm", "早"]]
     # 午安关键词
@@ -1588,6 +1584,9 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await noon_greeting_handler(update, context)
     elif text in night_keywords:
         await goodnight_greeting_handler(update, context)
+    # 处理命令
+    elif text.startswith('/'):
+        return
 
 async def ban_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """处理封禁命令"""
@@ -1931,11 +1930,9 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(CallbackQueryHandler(mute_reason_handler, pattern="^mute_reason"))
         bot_app.add_handler(CallbackQueryHandler(reply_callback_handler, pattern="^reply:"))
         
-        # 只处理回复消息和命令
+        # 处理所有文本消息
         bot_app.add_handler(MessageHandler(filters.TEXT & filters.REPLY, handle_reply_flow))
-        bot_app.add_handler(MessageHandler(filters.COMMAND, message_handler))
-        # 添加普通消息处理器，用于检查每日提醒
-        bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
+        bot_app.add_handler(MessageHandler(filters.TEXT, message_handler))  # 修改这里，处理所有文本消息
         
         # 添加群组成员变更处理器
         bot_app.add_handler(ChatMemberHandler(chat_member_handler))
