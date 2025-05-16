@@ -1467,8 +1467,8 @@ async def check_and_send_daily_reminder(update: Update, context: ContextTypes.DE
         )
         # 记录已发送提醒
         USER_DAILY_REMINDERS[user_id][current_date] = True
-        # 5分钟后删除提醒消息
-        asyncio.create_task(delete_message_later(reminder_msg, delay=300))
+        # 1分钟后删除提醒消息
+        asyncio.create_task(delete_message_later(reminder_msg, delay=60))
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理文本消息"""
