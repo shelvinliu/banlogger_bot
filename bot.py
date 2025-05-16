@@ -252,6 +252,8 @@ bot_initialized = False
 ban_records = []
 reply_keywords = {}
 sheets_storage = GoogleSheetsStorage()  # 创建 GoogleSheetsStorage 实例
+# 在全局变量部分添加
+USER_DAILY_REMINDERS = {}  # 用于记录用户每日提醒状态
 
 app = FastAPI()
 
@@ -1444,14 +1446,44 @@ async def comfort_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"🤗 向 {user.full_name} 发送了安慰消息")
     asyncio.create_task(delete_message_later(sent_message, delay=300))  # 改为5分钟
 
+async def check_and_send_daily_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """检查并发送每日提醒"""
+    if not update.message or not update.message.from_user:
+        return
+        
+    user_id = update.message.from_user.id
+    current_time = datetime.now(TIMEZONE)
+    current_date = current_time.strftime('%Y-%m-%d')
+    
+    # 检查是否是今天的第一次提醒
+    if user_id not in USER_DAILY_REMINDERS:
+        USER_DAILY_REMINDERS[user_id] = {}
+    
+    if current_date not in USER_DAILY_REMINDERS[user_id]:
+        # 发送提醒消息
+        reminder_msg = await update.message.reply_text(
+            "亲，您今天用MyStonks了吗？\n"
+            "🔗 https://mystonks.org"
+        )
+        # 记录已发送提醒
+        USER_DAILY_REMINDERS[user_id][current_date] = True
+        # 5分钟后删除提醒消息
+        asyncio.create_task(delete_message_later(reminder_msg, delay=300))
+
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理文本消息"""
     if not update.message or not update.message.text:
         return
         
+    # 检查并发送每日提醒
+    await check_and_send_daily_reminder(update, context)
+        
     text = update.message.text.strip().lower()  # 转换为小写进行比较
-    logger.info(f"Processing message: {text}")
     
+    # 只处理命令
+    if not text.startswith('/'):
+        return
+        
     # 早安关键词（转换为小写进行比较）
     morning_keywords = [kw.lower() for kw in ["早安", "早上好", "good morning", "morning", "gm", "早"]]
     # 午安关键词
@@ -1461,13 +1493,10 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # 精确匹配关键词（不区分大小写）
     if text in morning_keywords:
-        logger.info(f"Morning greeting triggered for exact match: {text}")
         await morning_greeting_handler(update, context)
     elif text in noon_keywords:
-        logger.info(f"Noon greeting triggered for exact match: {text}")
         await noon_greeting_handler(update, context)
     elif text in night_keywords:
-        logger.info(f"Night greeting triggered for exact match: {text}")
         await goodnight_greeting_handler(update, context)
 
 async def ban_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1805,22 +1834,18 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(CommandHandler("night", goodnight_greeting_handler))
         bot_app.add_handler(CommandHandler("comfort", comfort_handler))
         bot_app.add_handler(CommandHandler("ub", unban_handler))
-        bot_app.add_handler(CommandHandler("draw", lottery_handler))  # 使用英文命令名
+        bot_app.add_handler(CommandHandler("draw", lottery_handler))
         
         # 添加回调处理器
         bot_app.add_handler(CallbackQueryHandler(ban_reason_handler, pattern="^ban_reason"))
         bot_app.add_handler(CallbackQueryHandler(mute_reason_handler, pattern="^mute_reason"))
         bot_app.add_handler(CallbackQueryHandler(reply_callback_handler, pattern="^reply:"))
         
-        # 添加消息处理器 - 调整顺序和过滤器
-        # 1. 首先处理回复消息
+        # 只处理回复消息和命令
         bot_app.add_handler(MessageHandler(filters.TEXT & filters.REPLY, handle_reply_flow))
-        # 2. 然后处理问候功能
+        bot_app.add_handler(MessageHandler(filters.COMMAND, message_handler))
+        # 添加普通消息处理器，用于检查每日提醒
         bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
-        # 3. 最后处理关键词回复
-        bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.REPLY, auto_reply_handler))
-        # 4. 处理其他消息
-        bot_app.add_handler(MessageHandler(filters.ALL, forward_message_handler))
         
         # 添加群组成员变更处理器
         bot_app.add_handler(ChatMemberHandler(chat_member_handler))
