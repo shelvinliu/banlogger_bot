@@ -1834,6 +1834,10 @@ async def check_and_send_daily_reminder(update: Update, context: ContextTypes.DE
         if current_timestamp - last_reminder_time < 60:  # 60秒 = 1分钟
             return
             
+        # 随机决定是否发送提醒（20%的概率）
+        if random.random() > 0.2:
+            return
+            
         # 随机选择一条提醒消息
         reminder_messages = [
             "就问一句：你 MyStonks 了吗？\n🔗 https://mystonks.org",
@@ -1853,7 +1857,7 @@ async def check_and_send_daily_reminder(update: Update, context: ContextTypes.DE
             "💡 打开 MyStonks，掌握市场先机！\n🔗 https://mystonks.org",
             "🚀 用 MyStonks 的人，运气都不会太差～\n🔗 https://mystonks.org",
             "🎯 每日必看 MyStonks，投资不迷路！\n🔗 https://mystonks.org",
-            "🌟 今天也要记得打开 MyStonks 哦～\n🔗 https://mystonks.org"
+            "🌟 今天也要记得打开 MyStonks 哦～\n🔗 https://mystonks.org",
             "MyStonks上线啦，你还没来打卡吗？\n🔗 https://mystonks.org",
             "投资路上不迷路，MyStonks等你来！\n🔗 https://mystonks.org",
             "每天一点点MyStonks，财富离你更近~\n🔗 https://mystonks.org",
@@ -1883,7 +1887,7 @@ async def check_and_send_daily_reminder(update: Update, context: ContextTypes.DE
             "别落伍，MyStonks让你快人一步！\n🔗 https://mystonks.org",
             "MyStonks，让财富触手可及！\n🔗 https://mystonks.org",
             "财富密码就在MyStonks，快来开启！\n🔗 https://mystonks.org",
-            "MyStonks，一起见证财富奇迹！\n🔗 https://mystonks.org",
+            "MyStonks，一起见证财富奇迹！\n🔗 https://mystonks.org"
         ]
         
         # 发送提醒消息
@@ -2456,6 +2460,48 @@ async def chat_command_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         except Exception as e:
             logger.error(f"发送错误提示消息失败: {e}")
 
+async def view_sheet_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """查看 Google Sheet 内容"""
+    if not await check_admin(update, context):
+        await update.message.reply_text("❌ 只有管理员可以使用此命令")
+        return
+
+    try:
+        # 获取所有记录
+        records = sheets_storage.reminder_sheet.get_all_records()
+        
+        if not records:
+            await update.message.reply_text("📊 当前没有记录")
+            return
+            
+        # 格式化记录
+        current_date = datetime.now(TIMEZONE).strftime('%Y-%m-%d')
+        today_records = [r for r in records if r.get("日期") == current_date]
+        
+        message = f"📊 今日提醒记录 ({current_date}):\n\n"
+        
+        if today_records:
+            for i, record in enumerate(today_records, 1):
+                user_id = record.get("用户ID", "未知")
+                date = record.get("日期", "未知")
+                message += f"{i}. 用户ID: {user_id}\n   时间: {date}\n\n"
+        else:
+            message += "暂无今日记录\n"
+            
+        # 添加统计信息
+        message += f"\n📈 统计信息:\n"
+        message += f"• 今日记录数: {len(today_records)}\n"
+        message += f"• 总记录数: {len(records)}\n"
+        
+        # 发送消息
+        sent_message = await update.message.reply_text(message)
+        # 5分钟后删除消息
+        asyncio.create_task(delete_message_later(sent_message, delay=300))
+        
+    except Exception as e:
+        logger.error(f"查看记录失败: {e}")
+        await update.message.reply_text("❌ 获取记录失败，请稍后重试")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
@@ -2486,6 +2532,7 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(CommandHandler("draw", lottery_handler))
         bot_app.add_handler(CommandHandler("daka", daka_handler))
         bot_app.add_handler(CommandHandler("chat", chat_command_handler))  # 添加聊天命令处理器
+        bot_app.add_handler(CommandHandler("viewsheet", view_sheet_handler))  # 添加新命令
         
         # 添加回调处理器
         bot_app.add_handler(CallbackQueryHandler(ban_reason_handler, pattern="^ban_reason"))
