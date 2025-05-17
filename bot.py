@@ -2066,8 +2066,10 @@ async def chat_command_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                         # 尝试解析JSON
                         data = json.loads(content)
                         if data.get("result") == 0:
+                            # 替换回复内容中的"菲菲"为"小山炮"
+                            reply_content = data["content"].replace("菲菲", "小山炮")
                             # 发送回复
-                            sent_message = await update.message.reply_text(data["content"])
+                            sent_message = await update.message.reply_text(reply_content)
                             # 5分钟后删除消息
                             asyncio.create_task(delete_message_later(sent_message, delay=300))
                         else:
@@ -2081,7 +2083,9 @@ async def chat_command_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                             if json_match:
                                 data = json.loads(json_match.group())
                                 if data.get("result") == 0:
-                                    sent_message = await update.message.reply_text(data["content"])
+                                    # 替换回复内容中的"菲菲"为"小山炮"
+                                    reply_content = data["content"].replace("菲菲", "小山炮")
+                                    sent_message = await update.message.reply_text(reply_content)
                                     asyncio.create_task(delete_message_later(sent_message, delay=300))
                                 else:
                                     logger.error(f"API返回错误: {data}")
