@@ -132,42 +132,51 @@ class GoogleSheetsStorage:
         try:
             current_date = datetime.now(TIMEZONE).strftime('%Y-%m-%d')
             
-            # 获取所有记录
-            records = self.reminder_sheet.get_all_records()
-            
-            # 检查是否有今天的记录
-            has_today_records = any(record.get("日期") == current_date for record in records)
-            
-            # 如果没有今天的记录，说明是新的一天，需要清理
-            if not has_today_records:
-                try:
-                    # 清空表格
-                    self.reminder_sheet.clear()
-                    
-                    # 重新添加表头
-                    self.reminder_sheet.append_row(["用户ID", "日期"])
-                    logger.info("已清理提醒记录，开始新的一天")
-                except Exception as e:
-                    logger.error(f"清理表格失败: {e}")
-                    # 如果清理失败，尝试重新初始化表格
-                    try:
-                        spreadsheet = self.client.create("DailyReminders")
-                        self.reminder_sheet = spreadsheet.sheet1
-                        self.reminder_sheet.append_row(["用户ID", "日期"])
-                        logger.info("已重新创建提醒记录表")
-                    except Exception as e:
-                        logger.error(f"重新创建表格失败: {e}")
-            
-        except Exception as e:
-            logger.error(f"清理提醒记录失败: {e}")
-            # 如果获取记录失败，尝试重新初始化表格
-            try:
+            # 确保表格存在
+            if not self.reminder_sheet:
                 spreadsheet = self.client.create("DailyReminders")
                 self.reminder_sheet = spreadsheet.sheet1
                 self.reminder_sheet.append_row(["用户ID", "日期"])
-                logger.info("已重新创建提醒记录表")
+                logger.info("已创建新的提醒记录表")
+                return
+            
+            try:
+                # 获取所有记录
+                records = self.reminder_sheet.get_all_records()
+                
+                # 检查是否有今天的记录
+                has_today_records = any(record.get("日期") == current_date for record in records)
+                
+                # 如果没有今天的记录，说明是新的一天，需要清理
+                if not has_today_records:
+                    try:
+                        # 清空表格
+                        self.reminder_sheet.clear()
+                        
+                        # 重新添加表头
+                        self.reminder_sheet.append_row(["用户ID", "日期"])
+                        logger.info("已清理提醒记录，开始新的一天")
+                    except Exception as e:
+                        logger.error(f"清理表格失败: {e}")
+                        # 如果清理失败，尝试重新初始化表格
+                        await self._recreate_reminder_sheet()
             except Exception as e:
-                logger.error(f"重新创建表格失败: {e}")
+                logger.error(f"获取记录失败: {e}")
+                await self._recreate_reminder_sheet()
+            
+        except Exception as e:
+            logger.error(f"清理提醒记录失败: {e}")
+            await self._recreate_reminder_sheet()
+
+    async def _recreate_reminder_sheet(self):
+        """重新创建提醒记录表"""
+        try:
+            spreadsheet = self.client.create("DailyReminders")
+            self.reminder_sheet = spreadsheet.sheet1
+            self.reminder_sheet.append_row(["用户ID", "日期"])
+            logger.info("已重新创建提醒记录表")
+        except Exception as e:
+            logger.error(f"重新创建表格失败: {e}")
 
     async def check_daily_reminder(self, user_id: int, date: str) -> bool:
         """检查用户是否已经收到过今日提醒"""
@@ -175,21 +184,30 @@ class GoogleSheetsStorage:
             await self.initialize()
             
         try:
+            # 确保表格存在
+            if not self.reminder_sheet:
+                await self._recreate_reminder_sheet()
+                return False
+            
             # 先尝试清理旧记录
             await self.cleanup_old_reminders()
             
-            # 获取所有记录
-            records = self.reminder_sheet.get_all_records()
-            
-            # 检查是否存在匹配的记录
-            for record in records:
-                if str(record.get("用户ID")) == str(user_id) and record.get("日期") == date:
-                    return True
-            return False
+            try:
+                # 获取所有记录
+                records = self.reminder_sheet.get_all_records()
+                
+                # 检查是否存在匹配的记录
+                for record in records:
+                    if str(record.get("用户ID")) == str(user_id) and record.get("日期") == date:
+                        return True
+                return False
+            except Exception as e:
+                logger.error(f"获取记录失败: {e}")
+                await self._recreate_reminder_sheet()
+                return False
             
         except Exception as e:
             logger.error(f"检查提醒记录失败: {e}")
-            # 如果检查失败，返回 False 以允许发送提醒
             return False
 
     async def save_daily_reminder(self, user_id: int, date: str) -> bool:
@@ -198,29 +216,35 @@ class GoogleSheetsStorage:
             await self.initialize()
             
         try:
-            # 检查是否已经存在相同的记录
-            records = self.reminder_sheet.get_all_records()
-            for record in records:
-                if str(record.get("用户ID")) == str(user_id) and record.get("日期") == date:
-                    return True  # 如果已存在，直接返回成功
+            # 确保表格存在
+            if not self.reminder_sheet:
+                await self._recreate_reminder_sheet()
             
-            # 添加新记录
-            self.reminder_sheet.append_row([str(user_id), date])
-            return True
+            try:
+                # 检查是否已经存在相同的记录
+                records = self.reminder_sheet.get_all_records()
+                for record in records:
+                    if str(record.get("用户ID")) == str(user_id) and record.get("日期") == date:
+                        return True  # 如果已存在，直接返回成功
+                
+                # 添加新记录
+                self.reminder_sheet.append_row([str(user_id), date])
+                return True
+            except Exception as e:
+                logger.error(f"保存记录失败: {e}")
+                await self._recreate_reminder_sheet()
+                # 重新尝试保存
+                try:
+                    self.reminder_sheet.append_row([str(user_id), date])
+                    logger.info("已重新创建提醒记录表并保存记录")
+                    return True
+                except Exception as e:
+                    logger.error(f"重新保存记录失败: {e}")
+                    return False
             
         except Exception as e:
             logger.error(f"保存提醒记录失败: {e}")
-            # 如果保存失败，尝试重新初始化表格
-            try:
-                spreadsheet = self.client.create("DailyReminders")
-                self.reminder_sheet = spreadsheet.sheet1
-                self.reminder_sheet.append_row(["用户ID", "日期"])
-                self.reminder_sheet.append_row([str(user_id), date])
-                logger.info("已重新创建提醒记录表并保存记录")
-                return True
-            except Exception as e:
-                logger.error(f"重新创建表格并保存记录失败: {e}")
-                return False
+            return False
 
     async def get_keyword_replies(self) -> List[Dict[str, str]]:
         """获取关键词回复列表"""
@@ -1484,7 +1508,7 @@ async def morning_greeting_handler(update: Update, context: ContextTypes.DEFAULT
         f"🪴 {user.first_name}早上好！每天一点光，梦想就能慢慢长大～",
         f"🎖️ {user.first_name}早上好！今天也要以主角的姿态出场！",
         f"🏋️ {user.first_name}早安！你的努力，正在悄悄积蓄力量！",
-        f"🔧 {user.first_name}早上好！今天是‘打磨更好的自己’特别行动日～",
+        f"🔧 {user.first_name}早上好！今天是'打磨更好的自己'特别行动日～",
         f"🧬 {user.first_name}早安！努力是你DNA里的默认基因！",
         f"🎓 {user.first_name}早安！成长不止于书本，而在每一次出发！",
         f"🛹 {user.first_name}早安！生活的节奏由你掌控，滑起来吧！",
@@ -1505,7 +1529,7 @@ async def morning_greeting_handler(update: Update, context: ContextTypes.DEFAULT
         f"📎 {user.first_name}早上好！今天的你，稳重又闪亮！",
         f"🫧 {user.first_name}早安！每个梦想都值得被温柔对待～",
         f"🛁 {user.first_name}早上好！洗掉烦恼，涂上勇气，闪亮登场吧！",
-        f"🏆 {user.first_name}早安！今天也要为‘最棒的我’奖努力哦～",
+        f"🏆 {user.first_name}早安！今天也要为'最棒的我'奖努力哦～",
         f"🍸 {user.first_name}早上好！今天调配的是一杯元气满满！",
         f"🌶️ {user.first_name}早安！今天的你，辣得有点过分了耶～",
         f"💃 {user.first_name}早上好！快节奏也别忘了跳自己喜欢的舞步！",
@@ -1555,7 +1579,7 @@ async def noon_greeting_handler(update: Update, context: ContextTypes.DEFAULT_TY
         f"🍱 {{user.first_name}}午安！今天中午吃什么呀？别忘了加点开心的调料！",
         f"🍜 {{user.first_name}}中午好！干饭人准备就位了吗？",
         f"🥢 {{user.first_name}}午安！碳水和蛋白质在等你签收~",
-        f"🍛 {{user.first_name}}中午好！你今天的午餐被批准为‘快乐套餐’~",
+        f"🍛 {{user.first_name}}中午好！你今天的午餐被批准为'快乐套餐'~",
         f"🍔 {{user.first_name}}午安！胃已经开始抗议啦，快去安抚一下它~",
         f"🥗 {{user.first_name}}中午好！吃点清爽的，下午战斗力更强！",
         f"🥘 {{user.first_name}}午安！美味午餐是你前进的燃料~",
@@ -1567,7 +1591,7 @@ async def noon_greeting_handler(update: Update, context: ContextTypes.DEFAULT_TY
         f"🍕 {{user.first_name}}午安！不吃饭哪来的干劲去追梦呢~",
         f"🍜 {{user.first_name}}中午好！碗里香，心里甜，午安更有味~",
         f"🍱 {{user.first_name}}午安！干饭时间到，碗筷已就绪~",
-        f"🍰 {{user.first_name}}中午好！吃饱了才有资格说‘我不累’~",
+        f"🍰 {{user.first_name}}中午好！吃饱了才有资格说'我不累'~",
         f"🧂 {{user.first_name}}午安！给你的中饭撒点快乐的盐~",
         f"🍖 {{user.first_name}}中午好！肉肉是人类的好朋友~",
         f"🥩 {{user.first_name}}午安！吃饱了才能拯救银河系~",
@@ -1580,7 +1604,7 @@ async def noon_greeting_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
         # 午休提醒类
         f"😴 {{user.first_name}}午安！闭眼10分钟，满血复活不是梦~",
-        f"🛏️ {{user.first_name}}中午好！你和床的距离只差一个‘躺’字~",
+        f"🛏️ {{user.first_name}}中午好！你和床的距离只差一个'躺'字~",
         f"💤 {{user.first_name}}午安！别硬撑啦，躺平才是美德~",
         f"🧸 {{user.first_name}}中午好！午觉时间已到，梦里记得签到~",
         f"🧘 {{user.first_name}}午安！放空大脑，清理缓存中……",
@@ -1590,14 +1614,14 @@ async def noon_greeting_handler(update: Update, context: ContextTypes.DEFAULT_TY
         f"📵 {{user.first_name}}午安！手机放下，梦乡抱紧~",
         f"🌙 {{user.first_name}}中午好！今天的幸运藏在一场小憩里~",
         f"😌 {{user.first_name}}午安！闭眼10分钟，清醒一整个下午~",
-        f"🧠 {{user.first_name}}中午好！大脑需要一杯‘安静拿铁’~",
+        f"🧠 {{user.first_name}}中午好！大脑需要一杯'安静拿铁'~",
         f"🕯️ {{user.first_name}}午安！静一静，风也温柔~",
         f"🧦 {{user.first_name}}中午好！盖上小毯子，梦里跑个步~",
         f"🍃 {{user.first_name}}午安！静坐半小时，活力一整天~",
         f"🌿 {{user.first_name}}中午好！像植物一样，阳光和休息都要有~",
         f"🧘‍♂️ {{user.first_name}}午安！来一段深呼吸，让午后更轻盈~",
         f"🪑 {{user.first_name}}中午好！靠背一靠，烦恼全跑~",
-        f"🧴 {{user.first_name}}午安！给身体抹点‘放松防晒霜’~",
+        f"🧴 {{user.first_name}}午安！给身体抹点'放松防晒霜'~",
         f"⏸️ {{user.first_name}}中午好！暂停，是为了更好地播放~",
         f"🧘‍♀️ {{user.first_name}}午安！和疲惫说拜拜，和活力说hi~",
         f"🪫 {{user.first_name}}中午好！电量不足，正在午间自动充电中~",
@@ -1632,7 +1656,7 @@ async def noon_greeting_handler(update: Update, context: ContextTypes.DEFAULT_TY
         f"🥇 {{user.first_name}}午安！每个中午都在为冠军蓄力！",
 
         # 小山炮彩蛋类
-        f"🤖 {{user.first_name}}午安！我是你中午的‘干饭提醒小助手’上线啦！",
+        f"🤖 {{user.first_name}}午安！我是你中午的'干饭提醒小助手'上线啦！",
         f"🔊 {{user.first_name}}中午好！今日能量语音包已传送，记得充电！",
         f"🎁 {{user.first_name}}午安！你是今天第{random.randint(1,999)}位收到祝福的幸运鹅~",
         f"🧩 {{user.first_name}}中午好！小山炮为你拼凑最安心的中午时光~",
