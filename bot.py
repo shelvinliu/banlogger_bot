@@ -2060,19 +2060,48 @@ async def chat_command_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         async with aiohttp.ClientSession() as session:
             async with session.get(api_url) as response:
                 if response.status == 200:
-                    data = await response.json()
-                    if data.get("result") == 0:
-                        # 发送回复
-                        sent_message = await update.message.reply_text(data["content"])
-                        # 5分钟后删除消息
-                        asyncio.create_task(delete_message_later(sent_message, delay=300))
-                    else:
-                        logger.error(f"API返回错误: {data}")
+                    # 获取响应内容
+                    content = await response.text()
+                    try:
+                        # 尝试解析JSON
+                        data = json.loads(content)
+                        if data.get("result") == 0:
+                            # 发送回复
+                            sent_message = await update.message.reply_text(data["content"])
+                            # 5分钟后删除消息
+                            asyncio.create_task(delete_message_later(sent_message, delay=300))
+                        else:
+                            logger.error(f"API返回错误: {data}")
+                    except json.JSONDecodeError:
+                        # 如果不是JSON，尝试从HTML中提取内容
+                        try:
+                            # 使用正则表达式提取JSON部分
+                            import re
+                            json_match = re.search(r'\{.*\}', content)
+                            if json_match:
+                                data = json.loads(json_match.group())
+                                if data.get("result") == 0:
+                                    sent_message = await update.message.reply_text(data["content"])
+                                    asyncio.create_task(delete_message_later(sent_message, delay=300))
+                                else:
+                                    logger.error(f"API返回错误: {data}")
+                            else:
+                                logger.error("无法从响应中提取JSON数据")
+                                sent_message = await update.message.reply_text("抱歉，我现在无法回答这个问题")
+                                asyncio.create_task(delete_message_later(sent_message, delay=60))
+                        except Exception as e:
+                            logger.error(f"解析响应内容时出错: {e}")
+                            sent_message = await update.message.reply_text("抱歉，我现在无法回答这个问题")
+                            asyncio.create_task(delete_message_later(sent_message, delay=60))
                 else:
                     logger.error(f"API请求失败: {response.status}")
+                    sent_message = await update.message.reply_text("抱歉，我现在无法回答这个问题")
+                    asyncio.create_task(delete_message_later(sent_message, delay=60))
                     
     except Exception as e:
         logger.error(f"处理聊天消息时出错: {e}")
+        sent_message = await update.message.reply_text("抱歉，我现在无法回答这个问题")
+        asyncio.create_task(delete_message_later(sent_message, delay=60))
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
