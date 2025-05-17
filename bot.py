@@ -114,7 +114,8 @@ class GoogleSheetsStorage:
                 self.reminder_sheet.append_row([
                     "用户ID", "日期"
                 ])
-                logger.info("创建新的提醒记录表: DailyReminders")
+                logger.info(f"创建新的提醒记录表: DailyReminders (ID: {spreadsheet.id})")
+                logger.info(f"表格链接: https://docs.google.com/spreadsheets/d/{spreadsheet.id}")
             
             self.initialized = True
             logger.info("Google Sheets 客户端初始化成功")
@@ -1550,11 +1551,30 @@ async def check_and_send_daily_reminder(update: Update, context: ContextTypes.DE
     # 检查是否已经发送过提醒
     has_reminder = await sheets_storage.check_daily_reminder(user_id, current_date)
     if not has_reminder:
+        # 随机选择一条提醒消息
+        reminder_messages = [
+            "就问一句：你 MyStonks 了吗？\n🔗 https://mystonks.org",
+            "MyStonks 都这么好用了，你还不点？\n🔗 https://mystonks.org",
+            "每天点一点 MyStonks，机会离你近一点～\n🔗 https://mystonks.org",
+            "MyStonks 在等你，不点开它你良心不会痛吗？\n🔗 https://mystonks.org",
+            "忘了用 MyStonks？提醒你一下就好。\n🔗 https://mystonks.org",
+            "喂～MyStonks喊你来看数据了！\n🔗 https://mystonks.org",
+            "喵～今天也要用 MyStonks 才能变有钱哟～\n🔗 https://mystonks.org",
+            "MyStonks：你还没来看我吗？🥺\n🔗 https://mystonks.org",
+            "亲，今天记得来MyStonks看看哦～\n🔗 https://mystonks.org",
+            "喂～你是不是还没打开MyStonks？\n🔗 https://mystonks.org",
+            "用MyStonks的，未来都是赢家！所以你用了吗？\n🔗 https://mystonks.org",
+            "MyStonks 每天用一下，信息不落后。\n🔗 https://mystonks.org",
+            "一天不看 MyStonks，总觉得少点什么。\n🔗 https://mystonks.org",
+            "📈 今天用 MyStonks 了吗？市场信息都在这里！\n🔗 https://mystonks.org",
+            "💡 打开 MyStonks，掌握市场先机！\n🔗 https://mystonks.org",
+            "🚀 用 MyStonks 的人，运气都不会太差～\n🔗 https://mystonks.org",
+            "🎯 每日必看 MyStonks，投资不迷路！\n🔗 https://mystonks.org",
+            "🌟 今天也要记得打开 MyStonks 哦～\n🔗 https://mystonks.org"
+        ]
+        
         # 发送提醒消息
-        reminder_msg = await update.message.reply_text(
-            "亲，您今天用MyStonks了吗？\n"
-            "🔗 https://mystonks.org"
-        )
+        reminder_msg = await update.message.reply_text(random.choice(reminder_messages))
         # 保存提醒记录
         await sheets_storage.save_daily_reminder(user_id, current_date)
         # 1分钟后删除提醒消息
