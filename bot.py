@@ -332,7 +332,7 @@ BAN_RECORDS_SHEET = os.getenv("BAN_RECORDS_SHEET", "Ban&Mute Records")    # 封�
 KEYWORD_REPLIES_SHEET = os.getenv("KEYWORD_REPLIES_SHEET", "KeywordReplies")  # 关键词回复表名
 WEBHOOK_PATH = "/telegram"
 WEBHOOK_URL = f"{os.getenv('RENDER_EXTERNAL_URL', '')}{WEBHOOK_PATH}" if os.getenv("RENDER_EXTERNAL_URL") else None
-TIMEZONE = pytz.timezone(os.getenv("TIMEZONE", "Asia/Shanghai"))
+TIMEZONE = pytz.timezone('Asia/Shanghai')  # 设置为北京时间
 MAX_RECORDS_DISPLAY = 10
 EXCEL_FILE = "ban_records.xlsx"
 
@@ -546,12 +546,32 @@ async def ban_reason_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
             
             if success:
+                # 获取被回复的消息
+                replied_message = None
+                try:
+                    # 获取原始命令消息
+                    command_message = await context.bot.get_message(
+                        chat_id=query.message.chat.id,
+                        message_id=last_ban.get("message_id")
+                    )
+                    if command_message and command_message.reply_to_message:
+                        replied_message = command_message.reply_to_message
+                except Exception as e:
+                    logger.error(f"获取被回复消息失败: {e}")
+                
                 # 封禁用户并删除消息
                 await context.bot.ban_chat_member(
                     chat_id=query.message.chat.id,
                     user_id=banned_user_id,
                     revoke_messages=True  # 删除用户的所有消息
                 )
+                
+                # 如果找到了被回复的消息，尝试删除它
+                if replied_message:
+                    try:
+                        await replied_message.delete()
+                    except Exception as e:
+                        logger.error(f"删除被回复消息失败: {e}")
             
                 # 立即删除选择理由的消息
                 await query.message.delete()
@@ -1079,9 +1099,9 @@ async def handle_reply_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.warning("No message or text in update")
         return
         
+    # 检查是否在回复流程中
     if "reply_flow" not in context.user_data:
-        logger.warning("No reply_flow in user_data")
-        return
+        return  # 如果不在回复流程中，直接返回，不记录警告
         
     # 检查是否是回复机器人的消息
     if not update.message.reply_to_message:
@@ -1234,7 +1254,7 @@ async def records_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     """处理/records命令"""
     if not await check_admin(update, context):
         msg = await update.message.reply_text("❌ 只有管理员可以使用此命令")
-        asyncio.create_task(delete_message_later(msg))
+        asyncio.create_task(delete_message_later(msg, delay=10))
         return
     
     global ban_records
@@ -1544,41 +1564,62 @@ async def check_and_send_daily_reminder(update: Update, context: ContextTypes.DE
     if not update.message or not update.message.from_user:
         return
         
-    user_id = update.message.from_user.id
+    # 检查当前时间是否在凌晨4点后（北京时间）
     current_time = datetime.now(TIMEZONE)
+    if current_time.hour < 4:
+        return  # 凌晨4点前不发送提醒
+        
+    user_id = update.message.from_user.id
     current_date = current_time.strftime('%Y-%m-%d')
     
     # 检查是否已经发送过提醒
     has_reminder = await sheets_storage.check_daily_reminder(user_id, current_date)
-    if not has_reminder:
-        # 随机选择一条提醒消息
-        reminder_messages = [
-            "就问一句：你 MyStonks 了吗？\n🔗 https://mystonks.org",
-            "MyStonks 都这么好用了，你还不点？\n🔗 https://mystonks.org",
-            "每天点一点 MyStonks，机会离你近一点～\n🔗 https://mystonks.org",
-            "MyStonks 在等你，不点开它你良心不会痛吗？\n🔗 https://mystonks.org",
-            "忘了用 MyStonks？提醒你一下就好。\n🔗 https://mystonks.org",
-            "喂～MyStonks喊你来看数据了！\n🔗 https://mystonks.org",
-            "喵～今天也要用 MyStonks 才能变有钱哟～\n🔗 https://mystonks.org",
-            "MyStonks：你还没来看我吗？🥺\n🔗 https://mystonks.org",
-            "亲，今天记得来MyStonks看看哦～\n🔗 https://mystonks.org",
-            "喂～你是不是还没打开MyStonks？\n🔗 https://mystonks.org",
-            "用MyStonks的，未来都是赢家！所以你用了吗？\n🔗 https://mystonks.org",
-            "MyStonks 每天用一下，信息不落后。\n🔗 https://mystonks.org",
-            "一天不看 MyStonks，总觉得少点什么。\n🔗 https://mystonks.org",
-            "📈 今天用 MyStonks 了吗？市场信息都在这里！\n🔗 https://mystonks.org",
-            "💡 打开 MyStonks，掌握市场先机！\n🔗 https://mystonks.org",
-            "🚀 用 MyStonks 的人，运气都不会太差～\n🔗 https://mystonks.org",
-            "🎯 每日必看 MyStonks，投资不迷路！\n🔗 https://mystonks.org",
-            "🌟 今天也要记得打开 MyStonks 哦～\n🔗 https://mystonks.org"
-        ]
+    if has_reminder:
+        return  # 如果今天已经提醒过，直接返回
         
+    # 检查是否是命令消息
+    if update.message.text and update.message.text.startswith('/'):
+        return
+        
+    # 检查消息间隔（至少1分钟）
+    last_reminder_time = context.user_data.get('last_reminder_time', 0)
+    current_timestamp = time.time()
+    if current_timestamp - last_reminder_time < 60:  # 60秒 = 1分钟
+        return
+        
+    # 随机选择一条提醒消息
+    reminder_messages = [
+        "就问一句：你 MyStonks 了吗？\n🔗 https://mystonks.org",
+        "MyStonks 都这么好用了，你还不点？\n🔗 https://mystonks.org",
+        "每天点一点 MyStonks，机会离你近一点～\n🔗 https://mystonks.org",
+        "MyStonks 在等你，不点开它你良心不会痛吗？\n🔗 https://mystonks.org",
+        "忘了用 MyStonks？提醒你一下就好。\n🔗 https://mystonks.org",
+        "喂～MyStonks喊你来看数据了！\n🔗 https://mystonks.org",
+        "喵～今天也要用 MyStonks 才能变有钱哟～\n🔗 https://mystonks.org",
+        "MyStonks：你还没来看我吗？🥺\n🔗 https://mystonks.org",
+        "亲，今天记得来MyStonks看看哦～\n🔗 https://mystonks.org",
+        "喂～你是不是还没打开MyStonks？\n🔗 https://mystonks.org",
+        "用MyStonks的，未来都是赢家！所以你用了吗？\n🔗 https://mystonks.org",
+        "MyStonks 每天用一下，信息不落后。\n🔗 https://mystonks.org",
+        "一天不看 MyStonks，总觉得少点什么。\n🔗 https://mystonks.org",
+        "📈 今天用 MyStonks 了吗？市场信息都在这里！\n🔗 https://mystonks.org",
+        "💡 打开 MyStonks，掌握市场先机！\n🔗 https://mystonks.org",
+        "🚀 用 MyStonks 的人，运气都不会太差～\n🔗 https://mystonks.org",
+        "🎯 每日必看 MyStonks，投资不迷路！\n🔗 https://mystonks.org",
+        "🌟 今天也要记得打开 MyStonks 哦～\n🔗 https://mystonks.org"
+    ]
+    
+    try:
         # 发送提醒消息
         reminder_msg = await update.message.reply_text(random.choice(reminder_messages))
         # 保存提醒记录
         await sheets_storage.save_daily_reminder(user_id, current_date)
+        # 更新最后提醒时间
+        context.user_data['last_reminder_time'] = current_timestamp
         # 1分钟后删除提醒消息
         asyncio.create_task(delete_message_later(reminder_msg, delay=60))
+    except Exception as e:
+        logger.error(f"发送提醒消息失败: {e}")
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理文本消息"""
@@ -2048,11 +2089,20 @@ async def chat_command_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     # 获取用户消息（去掉/chat命令）
     user_message = update.message.text.replace('/chat', '').strip()
     if not user_message:
-        sent_message = await update.message.reply_text("请发送要聊天的内容，例如：/chat 你好")
-        asyncio.create_task(delete_message_later(sent_message, delay=60))
+        try:
+            sent_message = await update.message.reply_text("请发送要聊天的内容，例如：/chat 你好")
+            # 2分钟后删除提示消息
+            asyncio.create_task(delete_message_later(sent_message, delay=120))
+            # 2分钟后删除用户的命令消息
+            asyncio.create_task(delete_message_later(update.message, delay=120))
+        except Exception as e:
+            logger.error(f"发送提示消息失败: {e}")
         return
         
     try:
+        # 2分钟后删除用户的命令消息
+        asyncio.create_task(delete_message_later(update.message, delay=120))
+        
         # 构建API请求URL
         api_url = f"http://api.qingyunke.com/api.php?key=free&appid=0&msg={user_message}"
         
@@ -2068,10 +2118,13 @@ async def chat_command_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                         if data.get("result") == 0:
                             # 替换回复内容中的"菲菲"为"小山炮"
                             reply_content = data["content"].replace("菲菲", "小山炮")
-                            # 发送回复
-                            sent_message = await update.message.reply_text(reply_content)
-                            # 5分钟后删除消息
-                            asyncio.create_task(delete_message_later(sent_message, delay=300))
+                            try:
+                                # 发送回复
+                                sent_message = await update.message.reply_text(reply_content)
+                                # 2分钟后删除回复消息
+                                asyncio.create_task(delete_message_later(sent_message, delay=120))
+                            except Exception as e:
+                                logger.error(f"发送回复消息失败: {e}")
                         else:
                             logger.error(f"API返回错误: {data}")
                     except json.JSONDecodeError:
@@ -2085,27 +2138,47 @@ async def chat_command_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                                 if data.get("result") == 0:
                                     # 替换回复内容中的"菲菲"为"小山炮"
                                     reply_content = data["content"].replace("菲菲", "小山炮")
-                                    sent_message = await update.message.reply_text(reply_content)
-                                    asyncio.create_task(delete_message_later(sent_message, delay=300))
+                                    try:
+                                        sent_message = await update.message.reply_text(reply_content)
+                                        # 2分钟后删除回复消息
+                                        asyncio.create_task(delete_message_later(sent_message, delay=120))
+                                    except Exception as e:
+                                        logger.error(f"发送回复消息失败: {e}")
                                 else:
                                     logger.error(f"API返回错误: {data}")
                             else:
                                 logger.error("无法从响应中提取JSON数据")
-                                sent_message = await update.message.reply_text("抱歉，我现在无法回答这个问题")
-                                asyncio.create_task(delete_message_later(sent_message, delay=60))
+                                try:
+                                    sent_message = await update.message.reply_text("抱歉，我现在无法回答这个问题")
+                                    # 2分钟后删除错误提示消息
+                                    asyncio.create_task(delete_message_later(sent_message, delay=120))
+                                except Exception as e:
+                                    logger.error(f"发送错误提示消息失败: {e}")
                         except Exception as e:
                             logger.error(f"解析响应内容时出错: {e}")
-                            sent_message = await update.message.reply_text("抱歉，我现在无法回答这个问题")
-                            asyncio.create_task(delete_message_later(sent_message, delay=60))
+                            try:
+                                sent_message = await update.message.reply_text("抱歉，我现在无法回答这个问题")
+                                # 2分钟后删除错误提示消息
+                                asyncio.create_task(delete_message_later(sent_message, delay=120))
+                            except Exception as e:
+                                logger.error(f"发送错误提示消息失败: {e}")
                 else:
                     logger.error(f"API请求失败: {response.status}")
-                    sent_message = await update.message.reply_text("抱歉，我现在无法回答这个问题")
-                    asyncio.create_task(delete_message_later(sent_message, delay=60))
+                    try:
+                        sent_message = await update.message.reply_text("抱歉，我现在无法回答这个问题")
+                        # 2分钟后删除错误提示消息
+                        asyncio.create_task(delete_message_later(sent_message, delay=120))
+                    except Exception as e:
+                        logger.error(f"发送错误提示消息失败: {e}")
                     
     except Exception as e:
         logger.error(f"处理聊天消息时出错: {e}")
-        sent_message = await update.message.reply_text("抱歉，我现在无法回答这个问题")
-        asyncio.create_task(delete_message_later(sent_message, delay=60))
+        try:
+            sent_message = await update.message.reply_text("抱歉，我现在无法回答这个问题")
+            # 2分钟后删除错误提示消息
+            asyncio.create_task(delete_message_later(sent_message, delay=120))
+        except Exception as e:
+            logger.error(f"发送错误提示消息失败: {e}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
