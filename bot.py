@@ -2040,6 +2040,40 @@ async def daka_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 1分钟后删除消息
     asyncio.create_task(delete_message_later(sent_message, delay=60))
 
+async def chat_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理/chat命令"""
+    if not update.message or not update.message.text:
+        return
+        
+    # 获取用户消息（去掉/chat命令）
+    user_message = update.message.text.replace('/chat', '').strip()
+    if not user_message:
+        sent_message = await update.message.reply_text("请发送要聊天的内容，例如：/chat 你好")
+        asyncio.create_task(delete_message_later(sent_message, delay=60))
+        return
+        
+    try:
+        # 构建API请求URL
+        api_url = f"http://api.qingyunke.com/api.php?key=free&appid=0&msg={user_message}"
+        
+        # 发送请求
+        async with aiohttp.ClientSession() as session:
+            async with session.get(api_url) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    if data.get("result") == 0:
+                        # 发送回复
+                        sent_message = await update.message.reply_text(data["content"])
+                        # 5分钟后删除消息
+                        asyncio.create_task(delete_message_later(sent_message, delay=300))
+                    else:
+                        logger.error(f"API返回错误: {data}")
+                else:
+                    logger.error(f"API请求失败: {response.status}")
+                    
+    except Exception as e:
+        logger.error(f"处理聊天消息时出错: {e}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
@@ -2068,7 +2102,8 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(CommandHandler("comfort", comfort_handler))
         bot_app.add_handler(CommandHandler("ub", unban_handler))
         bot_app.add_handler(CommandHandler("draw", lottery_handler))
-        bot_app.add_handler(CommandHandler("daka", daka_handler))  # 添加打卡命令处理器
+        bot_app.add_handler(CommandHandler("daka", daka_handler))
+        bot_app.add_handler(CommandHandler("chat", chat_command_handler))  # 添加聊天命令处理器
         
         # 添加回调处理器
         bot_app.add_handler(CallbackQueryHandler(ban_reason_handler, pattern="^ban_reason"))
