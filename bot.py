@@ -1917,18 +1917,13 @@ async def lottery_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text("❌ 处理抽奖命令时出错")
 
 async def daka_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """处理每日打卡命令"""
+    """处理打卡命令，由机器人发送打卡消息"""
     if not update.message or not update.message.from_user:
         return
         
-    user = update.effective_user
-    current_time = datetime.now(TIMEZONE)
-    current_date = current_time.strftime('%Y-%m-%d')
-    
-    # 检查是否已经打卡
-    has_daka = await sheets_storage.check_daily_reminder(user.id, current_date)
-    if has_daka:
-        sent_message = await update.message.reply_text("你今天已经打卡啦，明天再来吧～")
+    # 检查是否是管理员
+    if not await check_admin(update, context):
+        sent_message = await update.message.reply_text("❌ 只有管理员可以使用此命令")
         asyncio.create_task(delete_message_later(sent_message, delay=60))
         return
     
@@ -2042,11 +2037,131 @@ async def daka_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 发送打卡消息
     sent_message = await update.message.reply_text(daka_message)
     
-    # 保存打卡记录
-    await sheets_storage.save_daily_reminder(user.id, current_date)
-    
     # 1分钟后删除消息
     asyncio.create_task(delete_message_later(sent_message, delay=60))
+
+async def send_daily_daka_message(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """发送每日打卡消息"""
+    try:
+        # 获取目标群组
+        chat_id = TARGET_GROUP_ID
+        if not chat_id:
+            logger.error("未设置目标群组ID")
+            return
+            
+        # 打卡消息列表
+        daka_messages = [
+            "小山炮打卡：坚持，是走向胜利的第一步。",
+            "小山炮打卡：今天的努力，都是明天的资本。",
+            "小山炮打卡：每一次坚持，都是成长的印记。",
+            "小山炮打卡：成功来自不懈的努力和信念。",
+            "小山炮打卡：别怕慢，只怕停。",
+            "小山炮打卡：行动，是对自己的承诺。",
+            "小山炮打卡：每个成功者，都是从开始迈出第一步的。",
+            "小山炮打卡：不积跬步，无以至千里。",
+            "小山炮打卡：持续努力，就是不断进步。",
+            "小山炮打卡：梦想因行动而闪光。",
+            "小山炮打卡：你的努力，是别人看不到的力量。",
+            "小山炮打卡：只要开始，就永远不会太晚。",
+            "小山炮打卡：努力不会骗自己，结果终会证明。",
+            "小山炮打卡：今日的汗水，是明日的收获。",
+            "小山炮打卡：成功是留给有准备的人。",
+            "小山炮打卡：每一次行动，都是自律的表现。",
+            "小山炮打卡：别等待完美，完美来自持续。",
+            "小山炮打卡：踏实走好每一步，未来自然光明。",
+            "小山炮打卡：坚持比天赋更重要。",
+            "小山炮打卡：别害怕失败，害怕的是放弃。",
+            "小山炮打卡：只要不停下脚步，就能抵达远方。",
+            "小山炮打卡：坚持是最好的投资。",
+            "小山炮打卡：用行动对抗犹豫和懒惰。",
+            "小山炮打卡：未来属于每天努力的人。",
+            "小山炮打卡：告诉自己，我依然在奋斗。",
+            "小山炮打卡：信念是你最坚实的后盾。",
+            "小山炮打卡：生活不会亏待每一个坚持的人。",
+            "小山炮打卡：每天进步一点点，积累终将爆发。",
+            "小山炮打卡：你种下的每一粒种子，都会发芽。",
+            "小山炮打卡：坚持是无声的胜利。",
+            "小山炮打卡：每天一点点，汇聚成未来的奇迹。",
+            "小山炮打卡：比别人多坚持一秒，就多了一次机会。",
+            "小山炮打卡：行动是一种态度，更是一种习惯。",
+            "小山炮打卡：心态决定成败，努力决定未来。",
+            "小山炮打卡：你的坚持，终将照亮前路。",
+            "小山炮打卡：行动胜于空想，努力才是真理。",
+            "小山炮打卡：失败不可怕，不努力才可怕。",
+            "小山炮打卡：坚持才是最长情的告白。",
+            "小山炮打卡：别放弃，你正在创造可能。",
+            "小山炮打卡：每一天的努力都是你的资本。",
+            "小山炮打卡：耐心耕耘，必有收获。",
+            "小山炮打卡：从今天开始，打造最好的自己。",
+            "小山炮打卡：坚持，是逆风飞翔的翅膀。",
+            "小山炮打卡：不怕慢，就怕停。",
+            "小山炮打卡：日积月累，点滴成金。",
+            "小山炮打卡：你的努力没人看到，但结果会告诉所有人。",
+            "小山炮打卡：只要不停，终会抵达。",
+            "小山炮打卡：没有捷径，只有坚持。",
+            "小山炮打卡：你今天的努力，都是明天的资本。",
+            "小山炮打卡：一切伟大都始于坚持。",
+            "小山炮打卡：每一次努力，都是胜利的种子。",
+            "小山炮打卡：把每一天当作新的起点。",
+            "小山炮打卡：持续发力，收获不负期待。",
+            "小山炮打卡：行动，是你对梦想的负责。",
+            "小山炮打卡：越努力，越幸运。",
+            "小山炮打卡：成功离不开日复一日的坚持。",
+            "小山炮打卡：坚持是你最强的武器。",
+            "小山炮打卡：用坚持打败拖延和懒惰。",
+            "小山炮打卡：只要努力，梦想终会成真。",
+            "小山炮打卡：你越坚持，路越宽。",
+            "小山炮打卡：成功没有终点，只有不断出发。",
+            "小山炮打卡：坚持就是最好的修行。",
+            "小山炮打卡：每一次努力都是向目标迈进。",
+            "小山炮打卡：每天的努力，都值得被尊重。",
+            "小山炮打卡：相信自己，坚持到底。",
+            "小山炮打卡：未来属于不轻言放弃的人。",
+            "小山炮打卡：别让今天的努力成为明天的遗憾。",
+            "小山炮打卡：每一次坚持，都是成长。",
+            "小山炮打卡：努力不是说说而已，要行动证明。",
+            "小山炮打卡：坚持，是通往成功的桥梁。",
+            "小山炮打卡：人生最怕停步不前。",
+            "小山炮打卡：今天的努力，是未来的光芒。",
+            "小山炮打卡：坚持，是对梦想最好的尊重。",
+            "小山炮打卡：用坚持点亮前方的路。",
+            "小山炮打卡：每天一点进步，终将非凡。",
+            "小山炮打卡：成功没有偶然，只有必然。",
+            "小山炮打卡：别轻言放弃，梦想在前方。",
+            "小山炮打卡：行动，是梦想的起点。",
+            "小山炮打卡：坚持，是成功的秘诀。",
+            "小山炮打卡：让坚持成为习惯，而非选择。",
+            "小山炮打卡：坚持，是对自己的最好投资。",
+            "小山炮打卡：每个坚持的今天，都值得骄傲。",
+            "小山炮打卡：失败不可怕，不坚持才可怕。",
+            "小山炮打卡：不怕慢，只怕停。",
+            "小山炮打卡：用坚持创造未来。",
+            "小山炮打卡：梦想属于每天努力的人。",
+            "小山炮打卡：坚持，是走向成功的必经之路。",
+            "小山炮打卡：把握当下，坚持到底。",
+            "小山炮打卡：坚持是最美的语言。",
+            "小山炮打卡：没有坚持，就没有成长。",
+            "小山炮打卡：成功的秘诀，就是不放弃。",
+            "小山炮打卡：把每一天当作新的机会。",
+            "小山炮打卡：坚持，是最坚实的力量。",
+            "小山炮打卡：用行动说话，用坚持证明。",
+            "小山炮打卡：别停下脚步，未来属于你。",
+            "小山炮打卡：努力从现在开始。",
+            "小山炮打卡：每天进步一点点，终有大成。",
+            "小山炮打卡：坚持，是梦想的基石。",
+            "小山炮打卡：用坚持点亮未来。",
+            "小山炮打卡：今天的努力，是明天的辉煌。"
+        ]
+        
+        # 随机选择一条打卡消息
+        daka_message = random.choice(daka_messages)
+        
+        # 发送打卡消息
+        await context.bot.send_message(chat_id=chat_id, text=daka_message)
+        logger.info(f"已发送每日打卡消息到群组 {chat_id}")
+        
+    except Exception as e:
+        logger.error(f"发送每日打卡消息失败: {e}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -2085,7 +2200,7 @@ async def lifespan(app: FastAPI):
         
         # 处理所有文本消息
         bot_app.add_handler(MessageHandler(filters.TEXT & filters.REPLY, handle_reply_flow))
-        bot_app.add_handler(MessageHandler(filters.TEXT, message_handler))  # 修改这里，处理所有文本消息
+        bot_app.add_handler(MessageHandler(filters.TEXT, message_handler))
         
         # 添加群组成员变更处理器
         bot_app.add_handler(ChatMemberHandler(chat_member_handler))
@@ -2098,6 +2213,16 @@ async def lifespan(app: FastAPI):
         await bot_app.initialize()
         await bot_app.start()
         bot_initialized = True
+        
+        # 添加每日打卡任务
+        job_queue = bot_app.job_queue
+        # 设置每天早上9点发送打卡消息
+        job_queue.run_daily(
+            send_daily_daka_message,
+            time=datetime.time(hour=9, minute=0, tzinfo=TIMEZONE),
+            name="daily_daka"
+        )
+        logger.info("已设置每日打卡任务")
         
         yield
         
