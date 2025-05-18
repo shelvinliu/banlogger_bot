@@ -401,6 +401,9 @@ reply_keywords = {}
 sheets_storage = GoogleSheetsStorage()  # 创建 GoogleSheetsStorage 实例
 # 在全局变量部分添加
 USER_DAILY_REMINDERS = {}  # 用于记录用户每日提醒状态
+# 在文件开头的全局变量部分添加
+# 全局变量
+mystonks_reminder_enabled = True  # MyStonks 提醒开关
 
 app = FastAPI()
 
@@ -1805,11 +1808,33 @@ async def comfort_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"🤗 向 {user.full_name} 发送了安慰消息")
     asyncio.create_task(delete_message_later(sent_message, delay=300))  # 改为5分钟
 
-async def check_and_send_daily_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """检查并发送每日提醒"""
-    if not update.message or not update.message.from_user:
+async def toggle_mystonks_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """切换 MyStonks 提醒开关"""
+    global mystonks_reminder_enabled
+    
+    if not await check_admin(update, context):
+        await update.message.reply_text("❌ 只有管理员可以使用此命令")
         return
         
+    mystonks_reminder_enabled = not mystonks_reminder_enabled
+    status = "开启" if mystonks_reminder_enabled else "关闭"
+    
+    message = await update.message.reply_text(f"✅ MyStonks 提醒已{status}")
+    # 5秒后删除消息
+    asyncio.create_task(delete_message_later(message, delay=5))
+
+async def check_and_send_daily_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """检查并发送每日提醒"""
+    global mystonks_reminder_enabled
+    
+    # 如果提醒功能已关闭，直接返回
+    if not mystonks_reminder_enabled:
+        return
+        
+    if not update.message or not update.message.from_user:
+        return
+    
+    # 其余代码保持不变
     # 检查当前时间是否在凌晨4点后（北京时间）
     current_time = datetime.now(TIMEZONE)
     if current_time.hour < 4:
@@ -2533,6 +2558,7 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(CommandHandler("daka", daka_handler))
         bot_app.add_handler(CommandHandler("chat", chat_command_handler))  # 添加聊天命令处理器
         bot_app.add_handler(CommandHandler("viewsheet", view_sheet_handler))  # 添加新命令
+        bot_app.add_handler(CommandHandler("mystonks", toggle_mystonks_handler))  # 添加新命令
         
         # 添加回调处理器
         bot_app.add_handler(CallbackQueryHandler(ban_reason_handler, pattern="^ban_reason"))
