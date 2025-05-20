@@ -2551,11 +2551,21 @@ async def export_members_handler(update: Update, context: ContextTypes.DEFAULT_T
     try:
         # 获取群组成员列表
         members = []
-        async for member in context.bot.get_chat_administrators(chat_id):
-            members.append(member)
-        async for member in context.bot.get_chat_members(chat_id):
-            if member.user.id not in [m.user.id for m in members]:
-                members.append(member)
+        
+        # 获取管理员列表
+        admins = await context.bot.get_chat_administrators(chat_id)
+        members.extend(admins)
+        
+        # 获取所有成员列表
+        all_members = await context.bot.get_chat_members(chat_id)
+        # 过滤掉已经是管理员的成员
+        existing_admin_ids = {admin.user.id for admin in admins}
+        members.extend([m for m in all_members if m.user.id not in existing_admin_ids])
+        
+        if not members:
+            await processing_msg.edit_text("❌ 无法获取群组成员信息")
+            asyncio.create_task(delete_message_later(processing_msg, delay=5))
+            return
         
         # 创建CSV文件
         output = io.StringIO()
@@ -2566,17 +2576,21 @@ async def export_members_handler(update: Update, context: ContextTypes.DEFAULT_T
         
         # 写入成员信息
         for member in members:
-            user = member.user
-            join_date = member.joined_date.strftime('%Y-%m-%d %H:%M:%S') if member.joined_date else '未知'
-            status = '管理员' if member.status in ['creator', 'administrator'] else '成员'
-            
-            writer.writerow([
-                user.id,
-                user.username or '无',
-                user.full_name,
-                join_date,
-                status
-            ])
+            try:
+                user = member.user
+                join_date = member.joined_date.strftime('%Y-%m-%d %H:%M:%S') if member.joined_date else '未知'
+                status = '管理员' if member.status in ['creator', 'administrator'] else '成员'
+                
+                writer.writerow([
+                    user.id,
+                    user.username or '无',
+                    user.full_name,
+                    join_date,
+                    status
+                ])
+            except Exception as e:
+                logger.error(f"处理成员信息时出错: {str(e)}")
+                continue
         
         # 准备发送文件
         output.seek(0)
@@ -2598,6 +2612,7 @@ async def export_members_handler(update: Update, context: ContextTypes.DEFAULT_T
         await processing_msg.delete()
         
     except Exception as e:
+        logger.error(f"导出成员信息失败: {str(e)}")
         await processing_msg.edit_text(f"❌ 导出失败：{str(e)}")
         # 5秒后删除错误消息
         asyncio.create_task(delete_message_later(processing_msg, delay=5))
