@@ -6,9 +6,11 @@ import base64
 import time as time_module  # 重命名 time 模块
 import random
 import re
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta, time, timezone
 from typing import Dict, List, Any, Optional
 from contextlib import asynccontextmanager
+import csv
+import io
 
 import pytz
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatMember, ChatPermissions
@@ -2527,6 +2529,79 @@ async def view_sheet_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         logger.error(f"查看记录失败: {e}")
         await update.message.reply_text("❌ 获取记录失败，请稍后重试")
 
+async def export_members_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """导出群组成员信息"""
+    if not await check_admin(update, context):
+        await update.message.reply_text("❌ 只有管理员可以使用此命令")
+        return
+        
+    if not update.message or not update.message.chat:
+        return
+        
+    chat_id = update.message.chat.id
+    
+    # 检查是否是群组
+    if update.message.chat.type not in ['group', 'supergroup']:
+        await update.message.reply_text("❌ 此命令只能在群组中使用")
+        return
+    
+    # 发送处理中的消息
+    processing_msg = await update.message.reply_text("⏳ 正在获取群组成员信息，请稍候...")
+    
+    try:
+        # 获取群组成员列表
+        members = []
+        async for member in context.bot.get_chat_administrators(chat_id):
+            members.append(member)
+        async for member in context.bot.get_chat_members(chat_id):
+            if member.user.id not in [m.user.id for m in members]:
+                members.append(member)
+        
+        # 创建CSV文件
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # 写入表头
+        writer.writerow(['用户ID', '用户名', '昵称', '加入时间', '状态'])
+        
+        # 写入成员信息
+        for member in members:
+            user = member.user
+            join_date = member.joined_date.strftime('%Y-%m-%d %H:%M:%S') if member.joined_date else '未知'
+            status = '管理员' if member.status in ['creator', 'administrator'] else '成员'
+            
+            writer.writerow([
+                user.id,
+                user.username or '无',
+                user.full_name,
+                join_date,
+                status
+            ])
+        
+        # 准备发送文件
+        output.seek(0)
+        csv_data = output.getvalue().encode('utf-8-sig')  # 使用带BOM的UTF-8编码，确保Excel正确显示中文
+        
+        # 生成文件名
+        current_time = datetime.now(TIMEZONE).strftime('%Y%m%d_%H%M%S')
+        filename = f"group_members_{current_time}.csv"
+        
+        # 发送文件
+        await context.bot.send_document(
+            chat_id=chat_id,
+            document=io.BytesIO(csv_data),
+            filename=filename,
+            caption=f"✅ 群组成员信息导出完成\n共 {len(members)} 名成员"
+        )
+        
+        # 删除处理中的消息
+        await processing_msg.delete()
+        
+    except Exception as e:
+        await processing_msg.edit_text(f"❌ 导出失败：{str(e)}")
+        # 5秒后删除错误消息
+        asyncio.create_task(delete_message_later(processing_msg, delay=5))
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
@@ -2559,6 +2634,7 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(CommandHandler("chat", chat_command_handler))  # 添加聊天命令处理器
         bot_app.add_handler(CommandHandler("viewsheet", view_sheet_handler))  # 添加新命令
         bot_app.add_handler(CommandHandler("mystonks", toggle_mystonks_handler))  # 添加新命令
+        bot_app.add_handler(CommandHandler("exportmembers", export_members_handler))  # 添加新命令
         
         # 添加回调处理器
         bot_app.add_handler(CallbackQueryHandler(ban_reason_handler, pattern="^ban_reason"))
