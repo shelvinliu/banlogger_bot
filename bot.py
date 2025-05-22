@@ -412,7 +412,7 @@ sheets_storage = GoogleSheetsStorage()  # 创建 GoogleSheetsStorage 实例
 USER_DAILY_REMINDERS = {}  # 用于记录用户每日提醒状态
 # 在文件开头的全局变量部分添加
 # 全局变量
-mystonks_reminder_enabled = True  # MyStonks 提醒开关
+mystonks_reminder_enabled = False  # MyStonks 提醒开关
 
 app = FastAPI()
 
@@ -2547,17 +2547,27 @@ async def export_recent_actions_handler(update: Update, context: ContextTypes.DE
         # 写入表头
         writer.writerow(['时间', '操作类型', '操作人', '消息ID', '消息内容', '详情'])
         
-        # 获取群组事件
-        async with context.bot as bot:
-            # 获取群组管理员列表
-            admins = await bot.get_chat_administrators(chat_id)
-            admin_ids = {admin.user.id for admin in admins}
-            
-            # 获取最近的群组消息
-            messages = []
-            async for msg in bot.get_chat_history(chat_id, limit=1000):
+        # 获取群组管理员列表
+        admins = await context.bot.get_chat_administrators(chat_id)
+        admin_ids = {admin.user.id for admin in admins}
+        
+        # 获取最近的群组消息
+        messages = []
+        offset = 0
+        limit = 100  # 每次获取100条消息
+        
+        while True:
+            updates = await context.bot.get_updates(offset=offset, limit=limit, timeout=30)
+            if not updates:
+                break
+                
+            for update in updates:
+                if not update.message or update.message.chat_id != chat_id:
+                    continue
+                    
+                msg = update.message
                 if msg.date < datetime.now(TIMEZONE) - timedelta(days=7):  # 只获取最近7天的记录
-                    break
+                    continue
                     
                 # 检查是否是管理操作
                 is_admin_action = False
@@ -2609,6 +2619,10 @@ async def export_recent_actions_handler(update: Update, context: ContextTypes.DE
                         'content': msg.text or msg.caption or "",
                         'details': details
                     })
+            
+            offset = updates[-1].update_id + 1
+            if len(updates) < limit:
+                break
         
         # 按时间倒序排序
         messages.sort(key=lambda x: x['time'], reverse=True)
