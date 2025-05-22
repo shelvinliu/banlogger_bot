@@ -11,6 +11,7 @@ from typing import Dict, List, Any, Optional
 from contextlib import asynccontextmanager
 import csv
 import io
+import uuid
 
 import pytz
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatMember, ChatPermissions
@@ -2518,6 +2519,155 @@ async def view_sheet_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         logger.error(f"处理查看表格命令时出错: {e}")
         await message.reply_text("处理查看表格命令时出错")
 
+async def export_recent_actions_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """导出群组最近操作记录"""
+    if not await check_admin(update, context):
+        return
+        
+    message = update.effective_message
+    if not message:
+        return
+        
+    # 检查是否是群组
+    if message.chat.type not in ['group', 'supergroup']:
+        await message.reply_text("❌ 此命令只能在群组中使用")
+        return
+        
+    # 发送处理中的消息
+    processing_msg = await message.reply_text("⏳ 正在获取群组操作记录，请稍候...")
+    
+    try:
+        # 获取群组操作记录
+        chat_id = message.chat_id
+        
+        # 创建CSV文件
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # 写入表头
+        writer.writerow(['时间', '操作类型', '操作人', '消息ID', '消息内容', '详情'])
+        
+        # 获取群组事件
+        async for event in context.bot.get_chat_event_log(chat_id):
+            try:
+                # 获取操作人信息
+                user = event.user
+                user_name = user.full_name if user else "系统"
+                
+                # 获取事件时间
+                event_time = event.date.strftime('%Y-%m-%d %H:%M:%S')
+                
+                # 获取事件类型和详情
+                event_type = event.action
+                details = str(event)
+                
+                # 获取消息相关信息
+                message_id = ""
+                message_content = ""
+                
+                if hasattr(event, 'message'):
+                    message_id = str(event.message.message_id) if event.message else ""
+                    if event.message and event.message.text:
+                        message_content = event.message.text
+                    elif event.message and event.message.caption:
+                        message_content = event.message.caption
+                
+                writer.writerow([
+                    event_time,
+                    event_type,
+                    user_name,
+                    message_id,
+                    message_content,
+                    details
+                ])
+            except Exception as e:
+                logger.error(f"处理事件记录时出错: {str(e)}")
+                continue
+        
+        # 准备发送文件
+        output.seek(0)
+        csv_data = output.getvalue().encode('utf-8-sig')  # 使用带BOM的UTF-8编码，确保Excel正确显示中文
+        
+        # 生成文件名
+        current_time = datetime.now(TIMEZONE).strftime('%Y%m%d_%H%M%S')
+        filename = f"group_actions_{current_time}.csv"
+        
+        # 生成一次性下载链接
+        file_id = str(uuid.uuid4())
+        context.bot_data[file_id] = {
+            'data': csv_data,
+            'filename': filename,
+            'expires': datetime.now(TIMEZONE) + timedelta(minutes=5),  # 5分钟后过期
+            'admin_id': message.from_user.id  # 记录请求的管理员ID
+        }
+        
+        # 发送带有一键下载按钮的消息
+        keyboard = [[InlineKeyboardButton("📥 点击下载记录", callback_data=f"download_{file_id}")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="✅ 群组操作记录已准备好\n⚠️ 此下载链接将在5分钟后失效\n⚠️ 仅管理员可下载",
+            reply_markup=reply_markup
+        )
+        
+        # 删除处理中的消息
+        await processing_msg.delete()
+        
+    except Exception as e:
+        logger.error(f"导出群组操作记录失败: {str(e)}")
+        await processing_msg.edit_text(f"❌ 导出失败：{str(e)}")
+        # 5秒后删除错误消息
+        asyncio.create_task(delete_message_later(processing_msg, delay=5))
+
+async def download_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """处理下载按钮回调"""
+    query = update.callback_query
+    if not query or not query.data or not query.data.startswith("download_"):
+        return
+        
+    # 检查是否是管理员
+    if not await check_admin(update, context):
+        await query.answer("❌ 只有管理员可以下载此文件", show_alert=True)
+        return
+        
+    file_id = query.data.split("_")[1]
+    file_data = context.bot_data.get(file_id)
+    
+    if not file_data:
+        await query.answer("❌ 下载链接已失效", show_alert=True)
+        return
+        
+    # 检查是否过期
+    if datetime.now(TIMEZONE) > file_data['expires']:
+        await query.answer("❌ 下载链接已过期", show_alert=True)
+        del context.bot_data[file_id]
+        return
+        
+    # 检查是否是请求的管理员
+    if query.from_user.id != file_data['admin_id']:
+        await query.answer("❌ 只有请求的管理员可以下载此文件", show_alert=True)
+        return
+        
+    try:
+        # 发送文件
+        await context.bot.send_document(
+            chat_id=query.message.chat_id,
+            document=io.BytesIO(file_data['data']),
+            filename=file_data['filename'],
+            caption="✅ 文件下载成功\n⚠️ 请妥善保管此文件"
+        )
+        
+        # 删除下载按钮消息
+        await query.message.delete()
+        
+        # 删除文件数据
+        del context.bot_data[file_id]
+        
+    except Exception as e:
+        logger.error(f"发送文件失败: {str(e)}")
+        await query.answer("❌ 下载失败，请重试", show_alert=True)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
@@ -2550,6 +2700,7 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(CommandHandler("chat", chat_command_handler))  # 添加聊天命令处理器
         bot_app.add_handler(CommandHandler("viewsheet", view_sheet_handler))  # 添加新命令
         bot_app.add_handler(CommandHandler("mystonks", toggle_mystonks_handler))  # 添加新命令
+        bot_app.add_handler(CommandHandler("recentactions", export_recent_actions_handler))  # 添加新命令
         
         # 添加回调处理器
         bot_app.add_handler(CallbackQueryHandler(ban_reason_handler, pattern="^ban_reason"))
