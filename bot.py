@@ -2548,41 +2548,81 @@ async def export_recent_actions_handler(update: Update, context: ContextTypes.DE
         writer.writerow(['时间', '操作类型', '操作人', '消息ID', '消息内容', '详情'])
         
         # 获取群组事件
-        async for event in context.bot.get_chat_event_log(chat_id):
-            try:
-                # 获取操作人信息
-                user = event.user
-                user_name = user.full_name if user else "系统"
+        async with context.bot as bot:
+            # 获取群组管理员列表
+            admins = await bot.get_chat_administrators(chat_id)
+            admin_ids = {admin.user.id for admin in admins}
+            
+            # 获取最近的群组消息
+            messages = []
+            async for msg in bot.get_chat_history(chat_id, limit=1000):
+                if msg.date < datetime.now(TIMEZONE) - timedelta(days=7):  # 只获取最近7天的记录
+                    break
+                    
+                # 检查是否是管理操作
+                is_admin_action = False
+                action_type = ""
+                details = ""
                 
-                # 获取事件时间
-                event_time = event.date.strftime('%Y-%m-%d %H:%M:%S')
+                # 检查消息类型
+                if msg.new_chat_members:
+                    is_admin_action = True
+                    action_type = "新成员加入"
+                    details = f"新成员: {', '.join(member.full_name for member in msg.new_chat_members)}"
+                elif msg.left_chat_member:
+                    is_admin_action = True
+                    action_type = "成员离开"
+                    details = f"离开成员: {msg.left_chat_member.full_name}"
+                elif msg.delete_chat_photo:
+                    is_admin_action = True
+                    action_type = "删除群组头像"
+                elif msg.group_chat_created:
+                    is_admin_action = True
+                    action_type = "创建群组"
+                elif msg.supergroup_chat_created:
+                    is_admin_action = True
+                    action_type = "升级为超级群组"
+                elif msg.channel_chat_created:
+                    is_admin_action = True
+                    action_type = "创建频道"
+                elif msg.message_auto_delete_timer_changed:
+                    is_admin_action = True
+                    action_type = "修改消息自动删除时间"
+                    details = f"新时间: {msg.message_auto_delete_timer_changed.message_auto_delete_time}秒"
+                elif msg.pinned_message:
+                    is_admin_action = True
+                    action_type = "置顶消息"
+                    details = f"置顶消息ID: {msg.pinned_message.message_id}"
+                elif msg.from_user and msg.from_user.id in admin_ids:
+                    # 检查是否是管理员的命令
+                    if msg.text and msg.text.startswith('/'):
+                        is_admin_action = True
+                        action_type = "管理员命令"
+                        details = msg.text
                 
-                # 获取事件类型和详情
-                event_type = event.action
-                details = str(event)
-                
-                # 获取消息相关信息
-                message_id = ""
-                message_content = ""
-                
-                if hasattr(event, 'message'):
-                    message_id = str(event.message.message_id) if event.message else ""
-                    if event.message and event.message.text:
-                        message_content = event.message.text
-                    elif event.message and event.message.caption:
-                        message_content = event.message.caption
-                
-                writer.writerow([
-                    event_time,
-                    event_type,
-                    user_name,
-                    message_id,
-                    message_content,
-                    details
-                ])
-            except Exception as e:
-                logger.error(f"处理事件记录时出错: {str(e)}")
-                continue
+                if is_admin_action:
+                    messages.append({
+                        'time': msg.date.strftime('%Y-%m-%d %H:%M:%S'),
+                        'type': action_type,
+                        'user': msg.from_user.full_name if msg.from_user else "系统",
+                        'message_id': str(msg.message_id),
+                        'content': msg.text or msg.caption or "",
+                        'details': details
+                    })
+        
+        # 按时间倒序排序
+        messages.sort(key=lambda x: x['time'], reverse=True)
+        
+        # 写入记录
+        for msg in messages:
+            writer.writerow([
+                msg['time'],
+                msg['type'],
+                msg['user'],
+                msg['message_id'],
+                msg['content'],
+                msg['details']
+            ])
         
         # 准备发送文件
         output.seek(0)
