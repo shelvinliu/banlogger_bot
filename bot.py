@@ -32,54 +32,124 @@ logger = logging.getLogger(__name__)
 class GoogleSheetsStorage:
     """Google Sheets 存储类"""
     def __init__(self):
-        self.credentials = None
-        self.client = None
-        self.ban_sheet = None
-        self.reply_sheet = None
-        self.reminder_sheet = None  # 添加提醒记录表
-        self.initialized = False
-        self.last_cleanup_date = None  # 添加最后清理日期记录
+        """初始化 Google Sheets 存储"""
+        self.reminder_sheet = None
         self.keyword_sheet = None
-        self.bubble_sheet = None  # 新增冒泡文案表格
+        self.bubble_sheet = None
         self.mystonks_enabled = False
-        self.bubble_enabled = False  # 默认关闭冒泡功能
+        self.bubble_enabled = False
+        self.initialized = False
+        self.last_cleanup_date = None
         self.initialize()
-        
+
     async def initialize(self):
-        """初始化 Google Sheets 连接"""
+        """初始化 Google Sheets 客户端"""
+        if self.initialized:
+            return
+            
         try:
-            # 设置 Google Sheets API 认证
-            scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-            creds = ServiceAccountCredentials.from_json_keyfile_name('google-credentials.json', scope)
-            client = gspread.authorize(creds)
+            # 解码 Base64 编码的凭证
+            credentials_json = base64.b64decode(GOOGLE_SHEETS_CREDENTIALS).decode('utf-8')
+            credentials_dict = json.loads(credentials_json)
             
-            # 打开表格
-            spreadsheet = client.open_by_key(os.getenv("GOOGLE_SHEET_ID"))
+            # 创建凭证
+            self.credentials = ServiceAccountCredentials.from_json_keyfile_dict(
+                credentials_dict,
+                ['https://spreadsheets.google.com/feeds',
+                 'https://www.googleapis.com/auth/drive']
+            )
             
-            # 获取或创建提醒表格
+            # 创建客户端
+            self.client = gspread.authorize(self.credentials)
+            
+            # 尝试打开或创建封禁记录表
             try:
-                self.reminder_sheet = spreadsheet.worksheet("Reminders")
-            except gspread.exceptions.WorksheetNotFound:
-                self.reminder_sheet = spreadsheet.add_worksheet("Reminders", 1000, 3)
-                self.reminder_sheet.append_row(["UserID", "Date", "Timestamp"])
+                self.ban_sheet = self.client.open(BAN_RECORDS_SHEET).sheet1
+            except gspread.exceptions.SpreadsheetNotFound:
+                # 如果表不存在，创建新表
+                spreadsheet = self.client.create(BAN_RECORDS_SHEET)
+                self.ban_sheet = spreadsheet.sheet1
+                # 添加表头
+                self.ban_sheet.append_row([
+                    "操作时间", "电报群组名称", "用户ID", 
+                    "用户名", "名称", "操作管理", 
+                    "理由", "操作"
+                ])
+                logger.info(f"创建新的封禁记录表: {BAN_RECORDS_SHEET}")
             
-            # 获取或创建关键词回复表格
+            # 尝试打开或创建关键词回复表
             try:
-                self.keyword_sheet = spreadsheet.worksheet("Keywords")
-            except gspread.exceptions.WorksheetNotFound:
-                self.keyword_sheet = spreadsheet.add_worksheet("Keywords", 1000, 4)
-                self.keyword_sheet.append_row(["Keyword", "Reply", "Link", "LinkText"])
-            
-            # 获取或创建冒泡文案表格
+                self.reply_sheet = self.client.open(KEYWORD_REPLIES_SHEET).sheet1
+                # 检查是否有表头
+                headers = self.reply_sheet.row_values(1)
+                if not headers or len(headers) < 4:
+                    # 如果表头不存在或不完整，添加表头
+                    self.reply_sheet.clear()
+                    self.reply_sheet.append_row([
+                        "关键词", "回复内容", "链接", "链接文本"
+                    ])
+                    logger.info("添加关键词回复表表头")
+            except gspread.exceptions.SpreadsheetNotFound:
+                # 如果表不存在，创建新表
+                spreadsheet = self.client.create(KEYWORD_REPLIES_SHEET)
+                self.reply_sheet = spreadsheet.sheet1
+                # 添加表头
+                self.reply_sheet.append_row([
+                    "关键词", "回复内容", "链接", "链接文本"
+                ])
+                logger.info(f"创建新的关键词回复表: {KEYWORD_REPLIES_SHEET}")
+
+            # 尝试打开或创建提醒记录表
             try:
-                self.bubble_sheet = spreadsheet.worksheet("BubbleTexts")
-            except gspread.exceptions.WorksheetNotFound:
-                self.bubble_sheet = spreadsheet.add_worksheet("BubbleTexts", 1000, 2)
-                self.bubble_sheet.append_row(["Text", "AddedBy"])
+                self.reminder_sheet = self.client.open("DailyReminders").sheet1
+                # 检查是否有表头
+                headers = self.reminder_sheet.row_values(1)
+                if not headers or len(headers) < 2:
+                    # 如果表头不存在或不完整，添加表头
+                    self.reminder_sheet.clear()
+                    self.reminder_sheet.append_row([
+                        "用户ID", "日期"
+                    ])
+                    logger.info("添加提醒记录表表头")
+            except gspread.exceptions.SpreadsheetNotFound:
+                # 如果表不存在，创建新表
+                spreadsheet = self.client.create("DailyReminders")
+                self.reminder_sheet = spreadsheet.sheet1
+                # 添加表头
+                self.reminder_sheet.append_row([
+                    "用户ID", "日期"
+                ])
+                logger.info(f"创建新的提醒记录表: DailyReminders (ID: {spreadsheet.id})")
+                logger.info(f"表格链接: https://docs.google.com/spreadsheets/d/{spreadsheet.id}")
+
+            # 尝试打开或创建冒泡文案表
+            try:
+                self.bubble_sheet = self.client.open("BubbleTexts").sheet1
+                # 检查是否有表头
+                headers = self.bubble_sheet.row_values(1)
+                if not headers or len(headers) < 2:
+                    # 如果表头不存在或不完整，添加表头
+                    self.bubble_sheet.clear()
+                    self.bubble_sheet.append_row([
+                        "Text", "AddedBy"
+                    ])
+                    logger.info("添加冒泡文案表表头")
+            except gspread.exceptions.SpreadsheetNotFound:
+                # 如果表不存在，创建新表
+                spreadsheet = self.client.create("BubbleTexts")
+                self.bubble_sheet = spreadsheet.sheet1
+                # 添加表头
+                self.bubble_sheet.append_row([
+                    "Text", "AddedBy"
+                ])
+                logger.info(f"创建新的冒泡文案表: BubbleTexts (ID: {spreadsheet.id})")
+                logger.info(f"表格链接: https://docs.google.com/spreadsheets/d/{spreadsheet.id}")
             
-            logger.info("Google Sheets 初始化成功")
+            self.initialized = True
+            logger.info("Google Sheets 客户端初始化成功")
+            
         except Exception as e:
-            logger.error(f"Google Sheets 初始化失败: {str(e)}")
+            logger.error(f"Google Sheets 初始化失败: {e}")
             raise
 
     async def get_random_bubble_text(self) -> Optional[str]:
