@@ -42,6 +42,7 @@ class GoogleSheetsStorage:
         self.keyword_sheet = None
         self.bubble_sheet = None  # 新增冒泡文案表格
         self.mystonks_enabled = False
+        self.bubble_enabled = False  # 默认关闭冒泡功能
         self.initialize()
         
     async def initialize(self):
@@ -398,6 +399,25 @@ class GoogleSheetsStorage:
         if not self.reminder_sheet:
             return None
         return f"https://docs.google.com/spreadsheets/d/{self.reminder_sheet.id}"
+
+    async def toggle_bubble_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """切换冒泡功能开关"""
+        if not await check_admin(update, context):
+            return
+            
+        message = update.effective_message
+        if not message:
+            return
+            
+        # 切换状态
+        self.bubble_enabled = not self.bubble_enabled
+        
+        # 发送状态消息
+        status = "开启" if self.bubble_enabled else "关闭"
+        await update.message.reply_text(f"✅ 冒泡功能已{status}")
+        
+        # 5秒后删除消息
+        asyncio.create_task(delete_message_later(message, delay=5))
 
 # 配置
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -1951,7 +1971,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
         
     # 检查是否包含"冒泡"关键词
-    if "冒泡" in update.message.text:
+    if sheets_storage.bubble_enabled and "冒泡" in update.message.text:
         # 获取随机冒泡文案
         bubble_text = await sheets_storage.get_random_bubble_text()
         if bubble_text:
@@ -2569,6 +2589,7 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(CommandHandler("chat", chat_command_handler))  # 添加聊天命令处理器
         bot_app.add_handler(CommandHandler("viewsheet", view_sheet_handler))  # 添加新命令
         bot_app.add_handler(CommandHandler("mystonks", toggle_mystonks_handler))  # 添加新命令
+        bot_app.add_handler(CommandHandler("togglebubble", sheets_storage.toggle_bubble_handler))  # 添加新命令
         
         # 添加回调处理器
         bot_app.add_handler(CallbackQueryHandler(ban_reason_handler, pattern="^ban_reason"))
