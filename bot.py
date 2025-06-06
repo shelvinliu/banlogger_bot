@@ -2081,43 +2081,8 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if not ai_enabled:
                     await update.message.reply_text("AI聊天功能当前已禁用。使用 /aitoggle 来启用它。")
                     return
-                    
-                # 获取用户消息
-                user_message = update.message.text
-                
-                # 配置Gemini AI
-                genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
-                
-                # 使用 Gemini 2.0 Flash-Lite 模型
-                model = genai.GenerativeModel('gemini-2.0-flash-lite')
-                
-                # 获取对话历史
-                chat_id = update.effective_chat.id
-                if chat_id not in ai_conversations:
-                    ai_conversations[chat_id] = []
-                
-                # 添加长度限制提示
-                prompt = f"{user_message}\n\n请用100字以内回答。"
-                
-                # 生成回复
-                response = model.generate_content(prompt)
-                
-                # 保存对话历史
-                ai_conversations[chat_id].append({
-                    'user': user_message,
-                    'ai': response.text
-                })
-                
-                # 获取提问用户的用户名或名字
-                user = update.effective_user
-                user_mention = user.username if user.username else user.first_name
-                
-                # 发送回复，@ 提问用户
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=f"@{user_mention} {response.text}",
-                    parse_mode='HTML'
-                )
+                # 调用 handle_ai_reply 处理回复
+                await handle_ai_reply(update, context)
                 return
                 
         # 处理其他消息...
