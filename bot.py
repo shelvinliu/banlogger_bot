@@ -2069,14 +2069,20 @@ async def handle_ai_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理所有消息"""
     try:
+        logger.info("message_handler called")
+        
         # 检查是否是回复消息
         if update.message.reply_to_message:
+            logger.info("Message is a reply")
             # 检查回复的是否是AI的消息
             if update.message.reply_to_message.from_user.id == context.bot.id:
+                logger.info("Reply is to bot's message")
                 # 检查AI是否启用
                 if not ai_enabled:
+                    logger.info("AI is disabled")
                     await update.message.reply_text("AI聊天功能当前已禁用。使用 /aitoggle 来启用它。")
                     return
+                logger.info("Processing AI reply")
                 # 调用 handle_ai_reply 处理回复
                 await handle_ai_reply(update, context)
                 return
@@ -2086,6 +2092,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     except Exception as e:
         logger.error(f"处理消息时出错: {e}")
+        logger.exception(e)  # 添加完整的错误堆栈
 
 async def unban_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """处理/unban命令，解除用户封禁"""
@@ -2190,10 +2197,9 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(CallbackQueryHandler(mute_reason_handler, pattern="^mute_reason"))
         bot_app.add_handler(CallbackQueryHandler(reply_callback_handler, pattern="^reply:"))
         
-        # 处理所有文本消息
-        bot_app.add_handler(MessageHandler(filters.TEXT & filters.REPLY, handle_reply_flow))
-        bot_app.add_handler(MessageHandler(filters.TEXT, message_handler))
-        
+        # 处理所有文本消息 - 调整顺序，确保回复消息优先处理
+        bot_app.add_handler(MessageHandler(filters.TEXT & filters.REPLY, message_handler))
+        bot_app.add_handler(MessageHandler(filters.TEXT, auto_reply_handler))
         
         # 从 Google Sheet 加载数据
         ban_records = await sheets_storage.load_from_sheet()
