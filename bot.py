@@ -521,7 +521,8 @@ USER_DAILY_REMINDERS = {}  # 用于记录用户每日提醒状态
 # 全局变量
 mystonks_reminder_enabled = False  # MyStonks 提醒开关
 # 在文件开头的全局变量部分添加
-ai_enabled = True  # 默认开启AI功能
+ai_enabled = False  # 默认关闭AI功能
+ai_conversations = {}  # 存储对话历史
 
 app = FastAPI()
 
@@ -2637,12 +2638,12 @@ async def view_sheet_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def gemini_chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """处理与Gemini AI的对话"""
-    global ai_enabled
+    global ai_enabled, ai_conversations
     
     if not ai_enabled:
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text="❌ AI功能当前已关闭"
+            text="❌ AI功能当前已关闭，请使用 /aitoggle 开启"
         )
         return
         
@@ -2659,14 +2660,25 @@ async def gemini_chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         # 配置Gemini AI
         genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
         
-        # 使用最新的 Gemini 2.5 Pro Preview 模型
-        model = genai.GenerativeModel('gemini-2.5-pro-preview-06-05')
+        # 使用 Gemini 2.0 Flash-Lite 模型
+        model = genai.GenerativeModel('gemini-2.0-flash-lite')
+        
+        # 获取或创建对话历史
+        chat_id = update.effective_chat.id
+        if chat_id not in ai_conversations:
+            ai_conversations[chat_id] = []
         
         # 添加长度限制提示
         prompt = f"{user_message}\n\n请用100字以内回答。"
         
         # 生成回复
         response = model.generate_content(prompt)
+        
+        # 保存对话历史
+        ai_conversations[chat_id].append({
+            'user': user_message,
+            'ai': response.text
+        })
         
         # 获取提问用户的用户名或名字
         user = update.effective_user
@@ -2697,7 +2709,7 @@ async def gemini_chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def toggle_ai_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """处理/aitoggle命令，切换AI功能的开启/关闭状态"""
-    global ai_enabled
+    global ai_enabled, ai_conversations
     
     if not await check_admin(update, context):
         await context.bot.send_message(
@@ -2708,10 +2720,19 @@ async def toggle_ai_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     
     ai_enabled = not ai_enabled
     status = "开启" if ai_enabled else "关闭"
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text=f"✅ AI功能已{status}"
-    )
+    
+    # 如果关闭AI，清除对话历史
+    if not ai_enabled:
+        ai_conversations.clear()
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"✅ AI功能已{status}，对话历史已清除"
+        )
+    else:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"✅ AI功能已{status}"
+        )
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
