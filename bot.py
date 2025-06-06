@@ -2147,6 +2147,50 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"处理消息时出错: {e}")
 
+async def unban_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """处理/unban命令，解除用户封禁"""
+    if not await check_admin(update, context):
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="❌ 只有管理员可以使用此命令"
+        )
+        return
+
+    try:
+        # 获取要解封的用户ID
+        if not context.args:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="请提供要解封的用户ID，例如：/unban 123456789"
+            )
+            return
+
+        user_id = int(context.args[0])
+        
+        # 解除封禁
+        await context.bot.unban_chat_member(
+            chat_id=update.effective_chat.id,
+            user_id=user_id
+        )
+        
+        # 发送成功消息
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"✅ 已解除用户 {user_id} 的封禁"
+        )
+        
+    except ValueError:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="❌ 无效的用户ID，请提供正确的数字ID"
+        )
+    except Exception as e:
+        logger.error(f"解除封禁失败: {e}")
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="❌ 解除封禁失败，请稍后重试"
+        )
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
