@@ -2639,7 +2639,10 @@ async def gemini_chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         # 获取用户消息
         user_message = update.message.text.replace('/ai', '').strip()
         if not user_message:
-            await update.message.reply_text("请提供您想问的问题，例如：/ai 今天天气怎么样？")
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="请提供您想问的问题，例如：/ai 今天天气怎么样？"
+            )
             return
 
         # 配置Gemini AI
@@ -2652,7 +2655,10 @@ async def gemini_chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         response = model.generate_content(user_message)
         
         # 发送回复
-        await update.message.reply_text(response.text)
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=response.text
+        )
         
     except Exception as e:
         logger.error(f"Gemini AI 对话失败: {e}")
@@ -2661,7 +2667,14 @@ async def gemini_chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             error_msg = "❌ Gemini API 密钥未配置或无效"
         elif "404" in str(e):
             error_msg = "❌ Gemini API 模型不可用，请检查配置"
-        await update.message.reply_text(error_msg)
+        
+        try:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=error_msg
+            )
+        except Exception as send_error:
+            logger.error(f"发送错误消息失败: {send_error}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
