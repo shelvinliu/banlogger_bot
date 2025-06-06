@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 import csv
 import io
 import uuid
+import pandas as pd
 
 import pytz
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatMember, ChatPermissions
@@ -21,6 +22,7 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from bs4 import BeautifulSoup
 import aiohttp
+import google.generativeai as genai
 
 # 配置日志
 logging.basicConfig(
@@ -28,6 +30,10 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# 配置 Gemini API
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+genai.configure(api_key=GEMINI_API_KEY)
 
 class GoogleSheetsStorage:
     """Google Sheets 存储类"""
@@ -1590,31 +1596,31 @@ async def morning_greeting_handler(update: Update, context: ContextTypes.DEFAULT
         f"🧭 {user.full_name}早安！别忘了方向，再远也能到达！",
         f"🔋 {user.full_name}早上好！今日电量已满，准备开挂！",
         f"🌿 {user.full_name}早安！新芽破土的力量，也藏在你心里～",
-        f"🏃 {user.full_name}早上好！只要迈出第一步，就已经赢了昨天的你！",
+        f"🏃 {user.full_name}早安！只要迈出第一步，就已经赢了昨天的你！",
         f"🛠️ {user.full_name}早安！一砖一瓦，今天也为梦想添块砖～",
-        f"🎵 {user.full_name}早上好！今天的节奏，由你来主导！",
+        f"🎵 {user.full_name}早安！今天的节奏，由你来主导！",
         f"🔭 {user.full_name}早安！用远见点亮今天，用脚步实现未来！",
-        f"📦 {user.full_name}早上好！生活给的每一个挑战，都是你的定制礼包！",
+        f"📦 {user.full_name}早安！生活给的每一个挑战，都是你的定制礼包！",
         f"🪄 {user.full_name}早安！别忘了，你就是奇迹的代名词！",
         f"🌈 {user.full_name}早安！你是晴天里最耀眼的那缕光！",
         f"🛫 {user.full_name}早上好！生活已起飞，请系好梦想的安全带！",
         f"🥇 {user.full_name}早安！你注定是属于榜首的那种人～",
         f"🧊 {user.full_name}早安！你今天的冷静值+100，理智通关！",
-        f"🏖️ {user.full_name}早上好！别忘了，快乐才是最终目的地！",
+        f"🏖️ {user.full_name}早安！别忘了，快乐才是最终目的地！",
         f"🍀 {user.full_name}早安！好运今天一定偷偷跟着你出门了～",
-        f"🐾 {user.full_name}早上好！迈出第一步，你就已经领先很多人了！",
+        f"🐾 {user.full_name}早安！迈出第一步，你就已经领先很多人了！",
         f"🧱 {user.full_name}早安！一点一点地垒，你的梦想终将成塔！",
-        f"🧃 {user.full_name}早上好！今天的你就是打工界的冰美式：醒！",
+        f"🧃 {user.full_name}早安！今天的你就是打工界的冰美式：醒！",
         f"🎯 {user.full_name}早安！今天也要精准输出，让世界记住你！",
-        f"📖 {user.full_name}早上好！今天是故事主角的第{random.randint(1,999)}章，请继续精彩演绎！",
+        f"📖 {user.full_name}早安！今天是故事主角的第{random.randint(1,999)}章，请继续精彩演绎！",
         f"🚴 {user.full_name}早安！人生就像骑车，停下来就容易倒，坚持就对了！",
-        f"📣 {user.full_name}早上好！宇宙广播站正在为你打 call！",
+        f"📣 {user.full_name}早安！宇宙广播站正在为你打 call！",
         f"🎬 {user.full_name}早安！你是这部人生大片的唯一主角！",
-        f"🌠 {user.full_name}早上好！今天也要当一颗努力发光的星星～",
+        f"🌠 {user.full_name}早安！今天也要当一颗努力发光的星星～",
         f"🧚 {user.full_name}早安！小仙子/仙男准备施展一天的魔法了吗？",
-        f"🗺️ {user.full_name}早上好！世界再大，也阻挡不了你要去的方向～",
+        f"🗺️ {user.full_name}早安！世界再大，也阻挡不了你要去的方向～",
         f"🥗 {user.full_name}早安！记得喂饱肚子，也喂饱梦想哦～",
-        f"🎿 {user.full_name}早上好！一路向前，不怕翻车！你最稳！",
+        f"🎿 {user.full_name}早安！一路向前，不怕翻车！你最稳！",
         f"🔔 {user.full_name}早安！生活的闹钟响了，梦想也该起床啦～",
         f"🖼️ {user.full_name}早安！今天是你人生画布上的又一笔神来之笔！",
         f"🦋 {user.full_name}早安！轻盈出发，哪怕是一点点前进，也是飞翔～",
@@ -1628,14 +1634,14 @@ async def morning_greeting_handler(update: Update, context: ContextTypes.DEFAULT
         f"🎉 {user.full_name}早安！今天也是你征服世界的练习日！",
         f"🦸 {user.full_name}早上好！披上勇气的斗篷，你无所不能！",
         f"🌋 {user.full_name}早安！就算今天困难像火山，你也是岩浆骑士！",
-        f"🌉 {user.full_name}早上好！别怕距离，前路有桥，也有光！",
+        f"🌉 {user.full_name}早安！别怕距离，前路有桥，也有光！",
         f"📀 {user.full_name}早安！今日开启'主角光环'模式！",
-        f"🪁 {user.full_name}早上好！逆风也能起飞，你就是那只不服的风筝！",
+        f"🪁 {user.full_name}早安！逆风也能起飞，你就是那只不服的风筝！",
         f"🍉 {user.full_name}早安！夏天的第一口西瓜，不如你今天的第一个微笑甜！",
-        f"🧞 {user.full_name}早上好！今天你许下的愿望，宇宙都听到了！",
+        f"🧞 {user.full_name}早安！今天你许下的愿望，宇宙都听到了！",
         f"📦 {user.full_name}早安！每个清晨都是生活递来的快递，签收好运吧！",
-        f"🎲 {user.full_name}早上好！今天你会掷出人生的 6 点！",
-        f"📡 {user.full_name}早上好！你已接入宇宙好运频道～",
+        f"🎲 {user.full_name}早安！今天你会掷出人生的 6 点！",
+        f"📡 {user.full_name}早安！你已接入宇宙好运频道～",
         f"🎻 {user.full_name}早安！你是这首日常交响曲里最动听的旋律！",
         f"💌 {user.full_name}早上好！早安信已送达，今天也要记得喜欢自己哦～",
         f"🦄 {user.full_name}早安！这个世界因为你才不无聊～",
@@ -1652,10 +1658,10 @@ async def morning_greeting_handler(update: Update, context: ContextTypes.DEFAULT
         f"🥳 {user.full_name}早上好！不需要特别的理由，也值得开心一整天～",
         f"💼 {user.full_name}早安！今天的你，专业又迷人！",
         f"📌 {user.full_name}早上好！别忘了，把笑容钉在脸上出门～",
-        f"💎 {user.full_name}早上好！越打磨越闪耀，今天你也很值钱！",
-        f"🧀 {user.full_name}早上好！就算是老鼠，也要勇敢偷走今天的奶酪！",
+        f"💎 {user.full_name}早安！越打磨越闪耀，今天你也很值钱！",
+        f"🧀 {user.full_name}早安！就算是老鼠，也要勇敢偷走今天的奶酪！",
         f"🧤 {user.full_name}早安！抓住机会，就像戴上了命运的手套！",
-        f"🧨 {user.full_name}早上好！今天的你，准备炸翻全场了吗？",
+        f"🧨 {user.full_name}早安！今天的你，准备炸翻全场了吗？",
         f"📸 {user.full_name}早安！微笑是你今天最值得记录的表情！",
         f"🌻 {user.full_name}早安！面对阳光，阴影就会在你身后！",
         f"🍰 {user.full_name}早上好！生活苦一点没关系，今天的你够甜！",
@@ -1663,7 +1669,7 @@ async def morning_greeting_handler(update: Update, context: ContextTypes.DEFAULT
         f"📼 {user.full_name}早安！今天的精彩，已经按下录制键了～",
         f"📅 {user.full_name}早上好！这不是平凡的一天，这是你人生的主线任务！",
         f"🛠️ {user.full_name}早安！今天也是精雕细琢的匠人精神上线！",
-        f"🥾 {user.full_name}早上好！脚下有泥，心中有光，继续走！",
+        f"🥾 {user.full_name}早安！脚下有泥，心中有光，继续走！",
         f"🧣 {user.full_name}早安！风再大，你也有温暖包围！",
         f"🧼 {user.full_name}早安！洗净昨日疲惫，迎接今天的荣光！",
         f"🧘 {user.full_name}早上好！身心平衡，才能风生水起！",
@@ -2627,6 +2633,25 @@ async def view_sheet_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         logger.error(f"处理查看表格命令时出错: {e}")
         await message.reply_text("处理查看表格命令时出错")
 
+async def gemini_chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """处理与Gemini AI的对话"""
+    try:
+        # 获取用户消息
+        user_message = update.message.text
+        
+        # 配置Gemini AI
+        model = genai.GenerativeModel('gemini-pro')
+        
+        # 生成回复
+        response = model.generate_content(user_message)
+        
+        # 发送回复
+        await update.message.reply_text(response.text)
+        
+    except Exception as e:
+        logger.error(f"Gemini AI 对话失败: {e}")
+        await update.message.reply_text("抱歉，AI 暂时无法回应，请稍后再试。")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
@@ -2660,6 +2685,7 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(CommandHandler("viewsheet", view_sheet_handler))  # 添加新命令
         bot_app.add_handler(CommandHandler("mystonks", toggle_mystonks_handler))  # 添加新命令
         bot_app.add_handler(CommandHandler("togglebubble", sheets_storage.toggle_bubble_handler))  # 添加新命令
+        bot_app.add_handler(CommandHandler("ai", gemini_chat_handler))  # 添加 Gemini AI 命令处理器
         
         # 添加回调处理器
         bot_app.add_handler(CallbackQueryHandler(ban_reason_handler, pattern="^ban_reason"))
