@@ -2040,8 +2040,17 @@ async def handle_ai_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if chat_id not in ai_conversations:
             ai_conversations[chat_id] = []
         
-        # 添加长度限制提示
-        prompt = f"{user_message}\n\n请用100字以内回答。"
+        # 添加背景信息和身份设定
+        background_info = """
+我是小山炮，MYSTONKS社区的一个机器人。我们的社区因对纳斯达克收割散户的愤怒而生。
+2025年1月23日，纳斯达克推广了名为$STONKS的Meme币，项目方跑路导致投资者巨亏。
+散户们奋起反抗，以起诉纳斯达克为起点，建立了去中心化交易所 mystonk.org，
+旨在让交易权利回归用户，并通过空投共享平台收益。
+我们的目标是净化并引领加密行业，最终实现散户的金融胜利。
+"""
+        
+        # 添加长度限制提示和背景信息
+        prompt = f"{background_info}\n\n用户消息：{user_message}\n\n请用100字以内回答，保持小山炮的身份。"
         
         # 生成回复
         response = model.generate_content(prompt)
@@ -2064,6 +2073,7 @@ async def handle_ai_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         
     except Exception as e:
         logger.error(f"处理AI回复失败: {e}")
+        logger.exception(e)  # 添加完整的错误堆栈
         await update.message.reply_text("抱歉，处理回复时出现错误，请稍后再试。")
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
