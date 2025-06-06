@@ -482,24 +482,6 @@ class GoogleSheetsStorage:
             return None
         return f"https://docs.google.com/spreadsheets/d/{self.reminder_sheet.id}"
 
-    async def toggle_bubble_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """切换冒泡功能开关"""
-        if not await check_admin(update, context):
-            return
-            
-        message = update.effective_message
-        if not message:
-            return
-            
-        # 切换状态
-        self.bubble_enabled = not self.bubble_enabled
-        
-        # 发送状态消息
-        status = "开启" if self.bubble_enabled else "关闭"
-        await update.message.reply_text(f"✅ 冒泡功能已{status}")
-        
-        # 5秒后删除消息
-        asyncio.create_task(delete_message_later(message, delay=5))
 
 # 配置
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -1932,20 +1914,6 @@ async def comfort_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"🤗 向 {user.full_name} 发送了安慰消息")
     asyncio.create_task(delete_message_later(sent_message, delay=300))  # 改为5分钟
 
-async def toggle_mystonks_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """切换 MyStonks 提醒开关"""
-    global mystonks_reminder_enabled
-    
-    if not await check_admin(update, context):
-        await update.message.reply_text("❌ 只有管理员可以使用此命令")
-        return
-        
-    mystonks_reminder_enabled = not mystonks_reminder_enabled
-    status = "开启" if mystonks_reminder_enabled else "关闭"
-    
-    message = await update.message.reply_text(f"✅ MyStonks 提醒已{status}")
-    # 5秒后删除消息
-    asyncio.create_task(delete_message_later(message, delay=5))
 
 async def check_and_send_daily_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """检查并发送每日提醒"""
@@ -2052,9 +2020,9 @@ async def check_and_send_daily_reminder(update: Update, context: ContextTypes.DE
 
 async def handle_ai_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """处理对AI消息的回复"""
-    global AI_ENABLED, ai_conversations
+    global ai_enabled, ai_conversations
     
-    if not AI_ENABLED:
+    if not ai_enabled:
         return
         
     try:
@@ -2110,7 +2078,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # 检查回复的是否是AI的消息
             if update.message.reply_to_message.from_user.id == context.bot.id:
                 # 检查AI是否启用
-                if not AI_ENABLED:
+                if not ai_enabled:
                     await update.message.reply_text("AI聊天功能当前已禁用。使用 /aitoggle 来启用它。")
                     return
                     
@@ -2204,18 +2172,18 @@ async def unban_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def toggle_ai_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Toggle AI chat functionality"""
-    global AI_ENABLED
+    global ai_enabled
     
     if not await check_admin(update, context):
         return
         
-    AI_ENABLED = not AI_ENABLED
-    status = "已启用" if AI_ENABLED else "已禁用"
+    ai_enabled = not ai_enabled
+    status = "已启用" if ai_enabled else "已禁用"
     await update.message.reply_text(f"AI聊天功能现在{status}")
 
 async def gemini_chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """处理AI聊天命令"""
-    if not AI_ENABLED:
+    if not ai_enabled:
         await update.message.reply_text("AI聊天功能当前已禁用。使用 /aitoggle 来启用它。")
         return
         
@@ -2253,8 +2221,6 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(CommandHandler("night", goodnight_greeting_handler))
         bot_app.add_handler(CommandHandler("comfort", comfort_handler))
         bot_app.add_handler(CommandHandler("ub", unban_handler))
-        bot_app.add_handler(CommandHandler("mystonks", toggle_mystonks_handler))
-        bot_app.add_handler(CommandHandler("togglebubble", sheets_storage.toggle_bubble_handler))
         bot_app.add_handler(CommandHandler("ai", gemini_chat_handler))
         bot_app.add_handler(CommandHandler("aitoggle", toggle_ai_handler))
         
