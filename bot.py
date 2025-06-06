@@ -2668,10 +2668,15 @@ async def gemini_chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         # 生成回复
         response = model.generate_content(prompt)
         
-        # 发送回复
+        # 获取提问用户的用户名或名字
+        user = update.effective_user
+        user_mention = user.username if user.username else user.first_name
+        
+        # 发送回复，@ 提问用户
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text=response.text
+            text=f"@{user_mention} {response.text}",
+            parse_mode='HTML'
         )
         
     except Exception as e:
@@ -2691,7 +2696,7 @@ async def gemini_chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             logger.error(f"发送错误消息失败: {send_error}")
 
 async def toggle_ai_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """处理/ai开关命令，切换AI功能的开启/关闭状态"""
+    """处理/aitoggle命令，切换AI功能的开启/关闭状态"""
     global ai_enabled
     
     if not await check_admin(update, context):
@@ -2742,7 +2747,7 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(CommandHandler("mystonks", toggle_mystonks_handler))  # 添加新命令
         bot_app.add_handler(CommandHandler("togglebubble", sheets_storage.toggle_bubble_handler))  # 添加新命令
         bot_app.add_handler(CommandHandler("ai", gemini_chat_handler))  # 添加 Gemini AI 命令处理器
-        bot_app.add_handler(CommandHandler("ai开关", toggle_ai_handler))  # 添加AI开关命令处理器
+        bot_app.add_handler(CommandHandler("aitoggle", toggle_ai_handler))  # 添加AI开关命令处理器
         
         # 添加回调处理器
         bot_app.add_handler(CallbackQueryHandler(ban_reason_handler, pattern="^ban_reason"))
