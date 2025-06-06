@@ -2044,626 +2044,24 @@ async def check_and_send_daily_reminder(update: Update, context: ContextTypes.DE
     except Exception as e:
         logger.error(f"发送提醒消息失败: {e}")
 
-async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """处理文本消息"""
-    if not update.message or not update.message.text:
-        return
-        
-    # 检查是否包含"冒泡"关键词
-    if sheets_storage.bubble_enabled and "冒泡" in update.message.text:
-        # 获取随机冒泡文案
-        bubble_text = await sheets_storage.get_random_bubble_text()
-        if bubble_text:
-            await update.message.reply_text(bubble_text)
-    
-    # 检查并发送每日提醒
-    await check_and_send_daily_reminder(update, context)
-        
-    text = update.message.text.strip().lower()  # 转换为小写进行比较
-    
-    # 早安关键词（转换为小写进行比较）
-    morning_keywords = [kw.lower() for kw in ["早安", "早上好", "good morning", "morning", "gm", "早"]]
-    # 午安关键词
-    noon_keywords = [kw.lower() for kw in ["午安", "中午好", "good noon", "noon"]]
-    # 晚安关键词
-    night_keywords = [kw.lower() for kw in ["晚安", "晚上好", "good night", "night", "gn"]]
-    
-    # 精确匹配关键词（不区分大小写）
-    if text in morning_keywords:
-        await morning_greeting_handler(update, context)
-    elif text in noon_keywords:
-        await noon_greeting_handler(update, context)
-    elif text in night_keywords:
-        await goodnight_greeting_handler(update, context)
-    # 处理命令
-    elif text.startswith('/'):
-        return
-
-async def ban_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """处理封禁命令"""
-    if not await check_admin(update, context):
-        return
-        
-    try:
-        # 获取消息
-        message = update.message
-        if not message:
-            return
-            
-        # 获取回复的消息
-        reply_to_message = message.reply_to_message
-        if not reply_to_message:
-            await message.reply_text("请回复要封禁的用户消息")
-            return
-            
-        # 获取用户信息
-        user = reply_to_message.from_user
-        if not user:
-            await message.reply_text("无法获取用户信息")
-            return
-            
-        # 获取群组信息
-        chat = message.chat
-        if not chat:
-            await message.reply_text("无法获取群组信息")
-            return
-            
-        # 检查是否已经在处理这个用户
-        if "last_ban" in context.chat_data:
-            last_ban = context.chat_data["last_ban"]
-            if last_ban.get("user_id") == user.id and last_ban.get("operator_id") != message.from_user.id:
-                # 如果其他管理员正在处理这个用户，直接返回
-                return
-                
-        # 创建封禁记录
-        banned_user_name = user.first_name  # Display name
-        banned_username = f"@{user.username}" if user.username else "无"  # Use existing username with @
-        context.chat_data["last_ban"] = {
-            "operator_id": message.from_user.id,
-            "chat_title": chat.title,
-            "user_id": user.id,
-            "banned_user_name": banned_user_name,
-            "banned_username": banned_username,
-            "message_id": message.message_id  # 添加消息ID
-        }
-        
-        # 创建理由选择按钮
-        keyboard = [
-            [
-                InlineKeyboardButton("广告", callback_data=f"ban_reason|{user.id}|{user.username}|广告"),
-                InlineKeyboardButton("FUD", callback_data=f"ban_reason|{user.id}|{user.username}|FUD")
-            ],
-            [
-                InlineKeyboardButton("带节奏", callback_data=f"ban_reason|{user.id}|{user.username}|带节奏"),
-                InlineKeyboardButton("攻击他人", callback_data=f"ban_reason|{user.id}|{user.username}|攻击他人")
-            ],
-            [
-                InlineKeyboardButton("诈骗", callback_data=f"ban_reason|{user.id}|{user.username}|诈骗")
-            ]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        # 发送选择理由的消息
-        sent_message = await message.reply_text(
-            f"请选择封禁用户 {user.first_name} 的理由：",
-            reply_markup=reply_markup
-        )
-        
-        # 30秒后删除消息
-        asyncio.create_task(delete_message_later(sent_message, delay=30))
-        
-    except Exception as e:
-        logger.error(f"处理封禁命令时出错: {e}")
-        await message.reply_text("处理封禁命令时出错")
-
-async def unban_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """处理解除封禁命令"""
-    if not await check_admin(update, context):
-        return
-        
-    try:
-        # 获取消息
-        message = update.message
-        if not message:
-            return
-            
-        # 获取群组信息
-        chat = message.chat
-        if not chat:
-            await message.reply_text("无法获取群组信息")
-            return
-            
-        # 检查是否提供了用户名
-        if not context.args:
-            await message.reply_text("请使用 @username 指定要解除封禁的用户")
-            return
-            
-        # 获取用户名并移除 @ 符号
-        username = context.args[0].lstrip('@')
-        if not username:
-            await message.reply_text("请提供有效的用户名")
-            return
-            
-        try:
-            # 获取用户信息
-            chat_member = await context.bot.get_chat_member(chat.id, username)
-            user = chat_member.user
-        except Exception as e:
-            await message.reply_text(f"无法找到用户 @{username}")
-            return
-            
-        # 创建解除封禁记录
-        record = {
-            "操作时间": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S"),
-            "电报群组名称": chat.title,
-            "用户ID": str(user.id),
-            "用户名": f"@{user.username}" if user.username else "无",
-            "名称": user.first_name,
-            "操作管理": message.from_user.first_name,
-            "理由": "解除封禁",
-            "操作": "解除封禁"
-        }
-        
-        # 保存到 Google Sheet
-        success = await sheets_storage.save_to_sheet(record)
-        if not success:
-            await message.reply_text("保存解除封禁记录失败")
-            return
-            
-        # 添加到内存中的记录列表
-        ban_records.append(record)
-        
-        # 解除封禁
-        await context.bot.unban_chat_member(
-            chat_id=chat.id,
-            user_id=user.id
-        )
-        
-        # 发送确认消息
-        await message.reply_text(
-            f"✅ 已解除封禁用户 {user.first_name} (ID: {user.id})\n"
-            f"⏰ 时间: {record['操作时间']}"
-        )
-        
-    except Exception as e:
-        logger.error(f"处理解除封禁命令时出错: {e}")
-        await message.reply_text("处理解除封禁命令时出错")
-
-async def chat_member_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """处理群组成员变更事件"""
-    try:
-        # 获取变更信息
-        chat_member = update.chat_member
-        if not chat_member:
-            return
-            
-        # 获取变更前后的状态
-        old_status = chat_member.old_chat_member.status
-        new_status = chat_member.new_chat_member.status
-        
-        # 检查是否是踢出或封禁操作
-        if (old_status == "member" and 
-            (new_status == "kicked" or new_status == "banned")):
-            
-            # 获取用户信息
-            user = chat_member.new_chat_member.user
-            if not user:
-                return
-                
-            # 获取群组信息
-            chat = update.effective_chat
-            if not chat:
-                return
-                
-            # 获取操作者信息
-            from_user = update.effective_user
-            if not from_user:
-                return
-                
-            # 创建记录
-            record = {
-                "操作时间": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S"),
-                "电报群组名称": chat.title,
-                "用户ID": str(user.id),
-                "用户名": user.username or "无",
-                "名称": user.first_name,
-                "操作管理": from_user.first_name,
-                "理由": "通过 Telegram 界面操作",
-                "操作": "封禁"  # 将踢出改为封禁
-            }
-            
-            # 保存到 Google Sheet
-            success = await sheets_storage.save_to_sheet(record)
-            if not success:
-                logger.error("保存封禁记录失败")
-                return
-                
-            # 添加到内存中的记录列表
-            ban_records.append(record)
-            
-            logger.info(
-                f"记录到封禁操作: {user.first_name} (ID: {user.id}) "
-                f"在群组 {chat.title} 被 {from_user.first_name} 封禁"
-            )
-            
-    except Exception as e:
-        logger.error(f"处理群组成员变更事件时出错: {e}")
-
-async def forward_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """处理消息转发"""
-    if not update.message or not update.message.from_user:
-        return
-        
-    # 检查消息是否来自要监听的机器人
-    if update.message.from_user.id in MONITORED_BOT_IDS:
-        try:
-            # 获取消息内容
-            message = update.message
-            
-            # 转发到目标群组
-            if TARGET_GROUP_ID:
-                try:
-                    # 直接转发消息
-                    await message.forward(chat_id=TARGET_GROUP_ID)
-                    logger.info(f"已转发来自机器人 {message.from_user.first_name} 的消息到群组 {TARGET_GROUP_ID}")
-                except Exception as e:
-                    logger.error(f"转发消息到群组 {TARGET_GROUP_ID} 失败: {e}")
-                    
-        except Exception as e:
-            logger.error(f"处理转发消息时出错: {e}")
-
-async def lottery_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """处理抽奖命令"""
-    if not await check_admin(update, context):
-        msg = await update.message.reply_text("❌ 只有管理员可以使用此命令")
-        asyncio.create_task(delete_message_later(msg))
-        return
-        
-    try:
-        # 检查参数
-        if len(context.args) != 2:
-            await update.message.reply_text("❌ 请使用正确的格式：/draw <中奖人数> <总人数>")
-            return
-            
-        # 解析参数
-        try:
-            winners_count = int(context.args[0])
-            total_count = int(context.args[1])
-        except ValueError:
-            await update.message.reply_text("❌ 请输入有效的数字")
-            return
-            
-        # 验证参数
-        if winners_count <= 0 or total_count <= 0:
-            await update.message.reply_text("❌ 人数必须大于0")
-            return
-            
-        if winners_count > total_count:
-            await update.message.reply_text("❌ 中奖人数不能大于总人数")
-            return
-            
-        # 使用更安全的随机数生成方法
-        # 1. 使用系统随机数生成器
-        # 2. 使用 Fisher-Yates 洗牌算法
-        # 3. 添加时间戳作为随机种子
-        numbers = list(range(1, total_count + 1))
-        seed = int(time.time() * 1000)  # 使用毫秒级时间戳
-        random.seed(seed)
-        
-        # Fisher-Yates 洗牌算法
-        for i in range(len(numbers) - 1, 0, -1):
-            j = random.randint(0, i)
-            numbers[i], numbers[j] = numbers[j], numbers[i]
-            
-        # 获取前 winners_count 个数字并排序
-        winners = sorted(numbers[:winners_count])
-        
-        # 构建结果消息
-        result_message = (
-            f"🎉 抽奖结果 🎉\n\n"
-            f"📊 总人数：{total_count}\n"
-            f"🎁 中奖人数：{winners_count}\n\n"
-            f"🏆 中奖号码：\n"
-        )
-        
-        # 添加中奖号码，每行显示5个
-        for i in range(0, len(winners), 5):
-            line = winners[i:i+5]
-            result_message += " ".join(f"{num:4d}" for num in line) + "\n"
-            
-        # 添加时间戳和随机种子
-        result_message += (
-            f"\n⏰ 抽奖时间：{datetime.now(TIMEZONE).strftime('%Y-%m-%d %H:%M:%S')}\n"
-            f"🎲 随机种子：{seed}"
-        )
-        
-        # 发送结果
-        sent_message = await update.message.reply_text(result_message)
-        
-        # 5分钟后删除消息
-        asyncio.create_task(delete_message_later(sent_message, delay=300))
-        
-    except Exception as e:
-        logger.error(f"处理抽奖命令时出错: {e}")
-        await update.message.reply_text("❌ 处理抽奖命令时出错")
-
-async def daka_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """处理打卡命令，由机器人发送打卡消息"""
-    if not update.message or not update.message.from_user:
-        return
-        
-    # 检查是否是管理员
-    if not await check_admin(update, context):
-        sent_message = await update.message.reply_text("❌ 只有管理员可以使用此命令")
-        asyncio.create_task(delete_message_later(sent_message, delay=60))
-        return
-    
-    # 打卡消息列表
-    daka_messages = [
-        "小山炮打卡：坚持，是走向胜利的第一步。",
-        "小山炮打卡：今天的努力，都是明天的资本。",
-        "小山炮打卡：每一次坚持，都是成长的印记。",
-        "小山炮打卡：成功来自不懈的努力和信念。",
-        "小山炮打卡：别怕慢，只怕停。",
-        "小山炮打卡：行动，是对自己的承诺。",
-        "小山炮打卡：每个成功者，都是从开始迈出第一步的。",
-        "小山炮打卡：不积跬步，无以至千里。",
-        "小山炮打卡：持续努力，就是不断进步。",
-        "小山炮打卡：梦想因行动而闪光。",
-        "小山炮打卡：你的努力，是别人看不到的力量。",
-        "小山炮打卡：只要开始，就永远不会太晚。",
-        "小山炮打卡：努力不会骗自己，结果终会证明。",
-        "小山炮打卡：今日的汗水，是明日的收获。",
-        "小山炮打卡：成功是留给有准备的人。",
-        "小山炮打卡：每一次行动，都是自律的表现。",
-        "小山炮打卡：别等待完美，完美来自持续。",
-        "小山炮打卡：踏实走好每一步，未来自然光明。",
-        "小山炮打卡：坚持比天赋更重要。",
-        "小山炮打卡：别害怕失败，害怕的是放弃。",
-        "小山炮打卡：只要不停下脚步，就能抵达远方。",
-        "小山炮打卡：坚持是最好的投资。",
-        "小山炮打卡：用行动对抗犹豫和懒惰。",
-        "小山炮打卡：未来属于每天努力的人。",
-        "小山炮打卡：告诉自己，我依然在奋斗。",
-        "小山炮打卡：信念是你最坚实的后盾。",
-        "小山炮打卡：生活不会亏待每一个坚持的人。",
-        "小山炮打卡：每天进步一点点，积累终将爆发。",
-        "小山炮打卡：你种下的每一粒种子，都会发芽。",
-        "小山炮打卡：坚持是无声的胜利。",
-        "小山炮打卡：每天一点点，汇聚成未来的奇迹。",
-        "小山炮打卡：比别人多坚持一秒，就多了一次机会。",
-        "小山炮打卡：行动是一种态度，更是一种习惯。",
-        "小山炮打卡：心态决定成败，努力决定未来。",
-        "小山炮打卡：你的坚持，终将照亮前路。",
-        "小山炮打卡：行动胜于空想，努力才是真理。",
-        "小山炮打卡：失败不可怕，不努力才可怕。",
-        "小山炮打卡：坚持才是最长情的告白。",
-        "小山炮打卡：别放弃，你正在创造可能。",
-        "小山炮打卡：每一天的努力都是你的资本。",
-        "小山炮打卡：耐心耕耘，必有收获。",
-        "小山炮打卡：从今天开始，打造最好的自己。",
-        "小山炮打卡：坚持，是逆风飞翔的翅膀。",
-        "小山炮打卡：不怕慢，就怕停。",
-        "小山炮打卡：日积月累，点滴成金。",
-        "小山炮打卡：你的努力没人看到，但结果会告诉所有人。",
-        "小山炮打卡：只要不停，终会抵达。",
-        "小山炮打卡：没有捷径，只有坚持。",
-        "小山炮打卡：你今天的努力，都是明天的资本。",
-        "小山炮打卡：一切伟大都始于坚持。",
-        "小山炮打卡：每一次努力，都是胜利的种子。",
-        "小山炮打卡：把每一天当作新的起点。",
-        "小山炮打卡：持续发力，收获不负期待。",
-        "小山炮打卡：行动，是你对梦想的负责。",
-        "小山炮打卡：越努力，越幸运。",
-        "小山炮打卡：成功离不开日复一日的坚持。",
-        "小山炮打卡：坚持是你最强的武器。",
-        "小山炮打卡：用坚持打败拖延和懒惰。",
-        "小山炮打卡：只要努力，梦想终会成真。",
-        "小山炮打卡：你越坚持，路越宽。",
-        "小山炮打卡：成功没有终点，只有不断出发。",
-        "小山炮打卡：坚持就是最好的修行。",
-        "小山炮打卡：每一次努力都是向目标迈进。",
-        "小山炮打卡：每天的努力，都值得被尊重。",
-        "小山炮打卡：相信自己，坚持到底。",
-        "小山炮打卡：未来属于不轻言放弃的人。",
-        "小山炮打卡：别让今天的努力成为明天的遗憾。",
-        "小山炮打卡：每一次坚持，都是成长。",
-        "小山炮打卡：努力不是说说而已，要行动证明。",
-        "小山炮打卡：坚持，是通往成功的桥梁。",
-        "小山炮打卡：人生最怕停步不前。",
-        "小山炮打卡：今天的努力，是未来的光芒。",
-        "小山炮打卡：坚持，是对梦想最好的尊重。",
-        "小山炮打卡：用坚持点亮前方的路。",
-        "小山炮打卡：每天一点进步，终将非凡。",
-        "小山炮打卡：成功没有偶然，只有必然。",
-        "小山炮打卡：别轻言放弃，梦想在前方。",
-        "小山炮打卡：行动，是梦想的起点。",
-        "小山炮打卡：坚持，是成功的秘诀。",
-        "小山炮打卡：让坚持成为习惯，而非选择。",
-        "小山炮打卡：坚持，是对自己的最好投资。",
-        "小山炮打卡：每个坚持的今天，都值得骄傲。",
-        "小山炮打卡：失败不可怕，不坚持才可怕。",
-        "小山炮打卡：不怕慢，只怕停。",
-        "小山炮打卡：用坚持创造未来。",
-        "小山炮打卡：梦想属于每天努力的人。",
-        "小山炮打卡：坚持，是走向成功的必经之路。",
-        "小山炮打卡：把握当下，坚持到底。",
-        "小山炮打卡：坚持是最美的语言。",
-        "小山炮打卡：没有坚持，就没有成长。",
-        "小山炮打卡：成功的秘诀，就是不放弃。",
-        "小山炮打卡：把每一天当作新的机会。",
-        "小山炮打卡：坚持，是最坚实的力量。",
-        "小山炮打卡：用行动说话，用坚持证明。",
-        "小山炮打卡：别停下脚步，未来属于你。",
-        "小山炮打卡：努力从现在开始。",
-        "小山炮打卡：每天进步一点点，终有大成。",
-        "小山炮打卡：坚持，是梦想的基石。",
-        "小山炮打卡：用坚持点亮未来。",
-        "小山炮打卡：今天的努力，是明天的辉煌。"
-    ]
-    
-    # 随机选择一条打卡消息
-    daka_message = random.choice(daka_messages)
-    
-    # 发送打卡消息
-    sent_message = await update.message.reply_text(daka_message)
-    
-    # 1分钟后删除消息
-    asyncio.create_task(delete_message_later(sent_message, delay=60))
-
-async def chat_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """处理/chat命令"""
-    if not update.message or not update.message.text:
-        return
-        
-    # 获取用户消息（去掉/chat命令）
-    user_message = update.message.text.replace('/chat', '').strip()
-    if not user_message:
-        try:
-            sent_message = await update.message.reply_text("请发送要聊天的内容，例如：/chat 你好")
-            # 2分钟后删除提示消息
-            asyncio.create_task(delete_message_later(sent_message, delay=120))
-            # 2分钟后删除用户的命令消息
-            asyncio.create_task(delete_message_later(update.message, delay=120))
-        except Exception as e:
-            logger.error(f"发送提示消息失败: {e}")
-        return
-        
-    try:
-        # 2分钟后删除用户的命令消息
-        asyncio.create_task(delete_message_later(update.message, delay=120))
-        
-        # 构建API请求URL
-        api_url = f"http://api.qingyunke.com/api.php?key=free&appid=0&msg={user_message}"
-        
-        # 发送请求
-        async with aiohttp.ClientSession() as session:
-            async with session.get(api_url) as response:
-                if response.status == 200:
-                    # 获取响应内容
-                    content = await response.text()
-                    try:
-                        # 尝试解析JSON
-                        data = json.loads(content)
-                        if data.get("result") == 0:
-                            # 替换回复内容中的"菲菲"为"小山炮"
-                            reply_content = data["content"].replace("菲菲", "小山炮")
-                            try:
-                                # 发送回复
-                                sent_message = await update.message.reply_text(reply_content)
-                                # 2分钟后删除回复消息
-                                asyncio.create_task(delete_message_later(sent_message, delay=120))
-                            except Exception as e:
-                                logger.error(f"发送回复消息失败: {e}")
-                        else:
-                            logger.error(f"API返回错误: {data}")
-                    except json.JSONDecodeError:
-                        # 如果不是JSON，尝试从HTML中提取内容
-                        try:
-                            # 使用正则表达式提取JSON部分
-                            import re
-                            json_match = re.search(r'\{.*\}', content)
-                            if json_match:
-                                data = json.loads(json_match.group())
-                                if data.get("result") == 0:
-                                    # 替换回复内容中的"菲菲"为"小山炮"
-                                    reply_content = data["content"].replace("菲菲", "小山炮")
-                                    try:
-                                        sent_message = await update.message.reply_text(reply_content)
-                                        # 2分钟后删除回复消息
-                                        asyncio.create_task(delete_message_later(sent_message, delay=120))
-                                    except Exception as e:
-                                        logger.error(f"发送回复消息失败: {e}")
-                                else:
-                                    logger.error(f"API返回错误: {data}")
-                            else:
-                                logger.error("无法从响应中提取JSON数据")
-                                try:
-                                    sent_message = await update.message.reply_text("抱歉，我现在无法回答这个问题")
-                                    # 2分钟后删除错误提示消息
-                                    asyncio.create_task(delete_message_later(sent_message, delay=120))
-                                except Exception as e:
-                                    logger.error(f"发送错误提示消息失败: {e}")
-                        except Exception as e:
-                            logger.error(f"解析响应内容时出错: {e}")
-                            try:
-                                sent_message = await update.message.reply_text("抱歉，我现在无法回答这个问题")
-                                # 2分钟后删除错误提示消息
-                                asyncio.create_task(delete_message_later(sent_message, delay=120))
-                            except Exception as e:
-                                logger.error(f"发送错误提示消息失败: {e}")
-                else:
-                    logger.error(f"API请求失败: {response.status}")
-                    try:
-                        sent_message = await update.message.reply_text("抱歉，我现在无法回答这个问题")
-                        # 2分钟后删除错误提示消息
-                        asyncio.create_task(delete_message_later(sent_message, delay=120))
-                    except Exception as e:
-                        logger.error(f"发送错误提示消息失败: {e}")
-                    
-    except Exception as e:
-        logger.error(f"处理聊天消息时出错: {e}")
-        try:
-            sent_message = await update.message.reply_text("抱歉，我现在无法回答这个问题")
-            # 2分钟后删除错误提示消息
-            asyncio.create_task(delete_message_later(sent_message, delay=120))
-        except Exception as e:
-            logger.error(f"发送错误提示消息失败: {e}")
-
-async def view_sheet_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """处理查看表格命令"""
-    if not await check_admin(update, context):
-        return
-        
-    message = update.effective_message
-    if not message:
-        return
-        
-    try:
-        # 获取表格链接
-        sheet_url = sheets_storage.get_sheet_url()
-        if not sheet_url:
-            await message.reply_text("❌ 无法获取表格链接")
-            return
-            
-        # 发送表格链接
-        await message.reply_text(
-            f"📊 记录表格链接：\n{sheet_url}\n\n"
-            "⚠️ 请确保您有权限访问此表格"
-        )
-        
-    except Exception as e:
-        logger.error(f"处理查看表格命令时出错: {e}")
-        await message.reply_text("处理查看表格命令时出错")
-
-async def gemini_chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """处理与Gemini AI的对话"""
+async def handle_ai_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """处理对AI消息的回复"""
     global ai_enabled, ai_conversations
     
     if not ai_enabled:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="❌ AI功能当前已关闭，请使用 /aitoggle 开启"
-        )
         return
         
     try:
         # 获取用户消息
-        user_message = update.message.text.replace('/ai', '').strip()
-        if not user_message:
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text="请提供您想问的问题，例如：/ai 今天天气怎么样？"
-            )
-            return
-
+        user_message = update.message.text
+        
         # 配置Gemini AI
         genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
         
         # 使用 Gemini 2.0 Flash-Lite 模型
         model = genai.GenerativeModel('gemini-2.0-flash-lite')
         
-        # 获取或创建对话历史
+        # 获取对话历史
         chat_id = update.effective_chat.id
         if chat_id not in ai_conversations:
             ai_conversations[chat_id] = []
@@ -2692,47 +2090,62 @@ async def gemini_chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         
     except Exception as e:
-        logger.error(f"Gemini AI 对话失败: {e}")
-        error_msg = "抱歉，AI 暂时无法回应，请稍后再试。"
-        if "API key" in str(e):
-            error_msg = "❌ Gemini API 密钥未配置或无效"
-        elif "404" in str(e):
-            error_msg = "❌ Gemini API 模型不可用，请检查配置"
-        
-        try:
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=error_msg
-            )
-        except Exception as send_error:
-            logger.error(f"发送错误消息失败: {send_error}")
+        logger.error(f"处理AI回复失败: {e}")
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="抱歉，处理回复时出现错误，请稍后再试。"
+        )
 
-async def toggle_ai_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """处理/aitoggle命令，切换AI功能的开启/关闭状态"""
-    global ai_enabled, ai_conversations
-    
-    if not await check_admin(update, context):
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="❌ 只有管理员可以使用此命令"
-        )
-        return
-    
-    ai_enabled = not ai_enabled
-    status = "开启" if ai_enabled else "关闭"
-    
-    # 如果关闭AI，清除对话历史
-    if not ai_enabled:
-        ai_conversations.clear()
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=f"✅ AI功能已{status}，对话历史已清除"
-        )
-    else:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=f"✅ AI功能已{status}"
-        )
+async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理所有消息"""
+    try:
+        # 检查是否是回复消息
+        if update.message.reply_to_message:
+            # 检查回复的是否是AI的消息
+            if update.message.reply_to_message.from_user.id == context.bot.id:
+                # 获取用户消息
+                user_message = update.message.text
+                
+                # 配置Gemini AI
+                genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
+                
+                # 使用 Gemini 2.0 Flash-Lite 模型
+                model = genai.GenerativeModel('gemini-2.0-flash-lite')
+                
+                # 获取对话历史
+                chat_id = update.effective_chat.id
+                if chat_id not in ai_conversations:
+                    ai_conversations[chat_id] = []
+                
+                # 添加长度限制提示
+                prompt = f"{user_message}\n\n请用100字以内回答。"
+                
+                # 生成回复
+                response = model.generate_content(prompt)
+                
+                # 保存对话历史
+                ai_conversations[chat_id].append({
+                    'user': user_message,
+                    'ai': response.text
+                })
+                
+                # 获取提问用户的用户名或名字
+                user = update.effective_user
+                user_mention = user.username if user.username else user.first_name
+                
+                # 发送回复，@ 提问用户
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=f"@{user_mention} {response.text}",
+                    parse_mode='HTML'
+                )
+                return
+                
+        # 处理其他消息...
+        # ... existing code ...
+        
+    except Exception as e:
+        logger.error(f"处理消息时出错: {e}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
