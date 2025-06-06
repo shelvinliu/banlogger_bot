@@ -2027,7 +2027,7 @@ async def handle_ai_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         
     try:
         # 获取用户消息
-        user_message = update.message.text
+        user_message = update.message.text.lower()
         
         # 配置Gemini AI
         genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
@@ -2040,8 +2040,10 @@ async def handle_ai_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if chat_id not in ai_conversations:
             ai_conversations[chat_id] = []
         
-        # 添加背景信息和身份设定
-        background_info = """
+        # 检查是否需要添加背景信息
+        background_info = ""
+        if any(keyword in user_message for keyword in ['mystonks', 'stonks', 'mystonk.org']):
+            background_info = """
 我是小山炮，MYSTONKS社区的一个机器人。我们的社区因对纳斯达克收割散户的愤怒而生。
 2025年1月23日，纳斯达克推广了名为$STONKS的Meme币，项目方跑路导致投资者巨亏。
 散户们奋起反抗，以起诉纳斯达克为起点，建立了去中心化交易所 mystonk.org，
@@ -2049,15 +2051,15 @@ async def handle_ai_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 我们的目标是净化并引领加密行业，最终实现散户的金融胜利。
 """
         
-        # 添加长度限制提示和背景信息
-        prompt = f"{background_info}\n\n用户消息：{user_message}\n\n请用100字以内回答，保持小山炮的身份。"
+        # 构建提示词
+        prompt = f"我是小山炮，MYSTONKS社区的机器人助手。{background_info}\n\n用户消息：{update.message.text}\n\n请用100字以内回答，保持小山炮的身份。"
         
         # 生成回复
         response = model.generate_content(prompt)
         
         # 保存对话历史
         ai_conversations[chat_id].append({
-            'user': user_message,
+            'user': update.message.text,
             'ai': response.text
         })
         
