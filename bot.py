@@ -23,6 +23,10 @@ from oauth2client.service_account import ServiceAccountCredentials
 from bs4 import BeautifulSoup
 import aiohttp
 import google.generativeai as genai
+from dotenv import load_dotenv
+
+# 加载环境变量
+load_dotenv()
 
 # 配置日志
 logging.basicConfig(
@@ -2046,9 +2050,9 @@ async def check_and_send_daily_reminder(update: Update, context: ContextTypes.DE
 
 async def handle_ai_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """处理对AI消息的回复"""
-    global ai_enabled, ai_conversations
+    global AI_ENABLED, ai_conversations
     
-    if not ai_enabled:
+    if not AI_ENABLED:
         return
         
     try:
@@ -2103,6 +2107,11 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if update.message.reply_to_message:
             # 检查回复的是否是AI的消息
             if update.message.reply_to_message.from_user.id == context.bot.id:
+                # 检查AI是否启用
+                if not AI_ENABLED:
+                    await update.message.reply_text("AI聊天功能当前已禁用。使用 /aitoggle 来启用它。")
+                    return
+                    
                 # 获取用户消息
                 user_message = update.message.text
                 
@@ -2191,6 +2200,29 @@ async def unban_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             text="❌ 解除封禁失败，请稍后重试"
         )
 
+async def toggle_ai_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Toggle AI chat functionality"""
+    if not await check_admin(update, context):
+        return
+        
+    global AI_ENABLED
+    AI_ENABLED = not AI_ENABLED
+    status = "enabled" if AI_ENABLED else "disabled"
+    await update.message.reply_text(f"AI chat is now {status}")
+
+async def gemini_chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """处理AI聊天命令"""
+    if not AI_ENABLED:
+        await update.message.reply_text("AI聊天功能当前已禁用。使用 /aitoggle 来启用它。")
+        return
+        
+    if not context.args:
+        await update.message.reply_text("请提供要发送给AI的消息。")
+        return
+        
+    query = " ".join(context.args)
+    await handle_ai_reply(update, context)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
@@ -2218,9 +2250,6 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(CommandHandler("night", goodnight_greeting_handler))
         bot_app.add_handler(CommandHandler("comfort", comfort_handler))
         bot_app.add_handler(CommandHandler("ub", unban_handler))
-        bot_app.add_handler(CommandHandler("daka", daka_handler))
-        bot_app.add_handler(CommandHandler("chat", chat_command_handler))
-        bot_app.add_handler(CommandHandler("viewsheet", view_sheet_handler))
         bot_app.add_handler(CommandHandler("mystonks", toggle_mystonks_handler))
         bot_app.add_handler(CommandHandler("togglebubble", sheets_storage.toggle_bubble_handler))
         bot_app.add_handler(CommandHandler("ai", gemini_chat_handler))
@@ -2235,8 +2264,6 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(MessageHandler(filters.TEXT & filters.REPLY, handle_reply_flow))
         bot_app.add_handler(MessageHandler(filters.TEXT, message_handler))
         
-        # 添加群组成员变更处理器
-        bot_app.add_handler(ChatMemberHandler(chat_member_handler))
         
         # 从 Google Sheet 加载数据
         ban_records = await sheets_storage.load_from_sheet()
