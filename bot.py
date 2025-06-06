@@ -2645,12 +2645,11 @@ async def gemini_chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         # 配置Gemini AI
         genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
         
-        # 使用正确的模型名称
-        model = genai.GenerativeModel('gemini-1.0-pro')
+        # 使用最新的 Gemini 2.5 Pro Preview 模型
+        model = genai.GenerativeModel('gemini-2.5-pro-preview-06-05')
         
         # 生成回复
-        chat = model.start_chat(history=[])
-        response = chat.send_message(user_message)
+        response = model.generate_content(user_message)
         
         # 发送回复
         await update.message.reply_text(response.text)
