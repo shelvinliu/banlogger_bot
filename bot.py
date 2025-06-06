@@ -2057,18 +2057,14 @@ async def handle_ai_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         user_mention = user.username if user.username else user.first_name
         
         # 发送回复，@ 提问用户
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
+        await update.message.reply_text(
             text=f"@{user_mention} {response.text}",
             parse_mode='HTML'
         )
         
     except Exception as e:
         logger.error(f"处理AI回复失败: {e}")
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="抱歉，处理回复时出现错误，请稍后再试。"
-        )
+        await update.message.reply_text("抱歉，处理回复时出现错误，请稍后再试。")
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理所有消息"""
