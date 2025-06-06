@@ -2051,8 +2051,16 @@ async def handle_ai_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 我们的目标是净化并引领加密行业，最终实现散户的金融胜利。
 """
         
-        # 构建提示词
-        prompt = f"我是小山炮，MYSTONKS社区的机器人助手。{background_info}\n\n用户消息：{update.message.text}\n\n请用100字以内回答，保持小山炮的身份。"
+        # 构建提示词，强调回答长度限制
+        prompt = f"""我是小山炮，MYSTONKS社区的机器人助手。{background_info}
+
+用户消息：{update.message.text}
+
+请用1-200字回答，保持简洁明了。回答要：
+1. 直接回答问题
+2. 避免不必要的修饰词
+3. 保持小山炮的身份
+4. 如果涉及专业术语，用简单的话解释"""
         
         # 生成回复
         response = model.generate_content(prompt)
@@ -2213,26 +2221,34 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(MessageHandler(filters.TEXT & filters.REPLY, message_handler))
         bot_app.add_handler(MessageHandler(filters.TEXT, auto_reply_handler))
         
-        # 从 Google Sheet 加载数据
-        ban_records = await sheets_storage.load_from_sheet()
-        logger.info(f"Loaded {len(ban_records)} records from Google Sheet")
+        # 尝试从 Google Sheet 加载数据
+        try:
+            ban_records = await sheets_storage.load_from_sheet()
+            logger.info("成功从 Google Sheets 加载数据")
+        except Exception as e:
+            logger.error(f"Google Sheets 连接失败: {e}")
+            ban_records = []  # 使用空列表作为默认值
+            logger.warning("将使用内存存储，部分功能可能受限")
         
         # 启动 bot
         await bot_app.initialize()
         await bot_app.start()
         bot_initialized = True
+        logger.info("Bot 已成功启动")
         
         yield
         
     except Exception as e:
-        logger.error(f"Error during startup: {e}")
+        logger.error(f"启动过程中出错: {e}")
+        logger.exception(e)
         raise
-        
     finally:
-        # 清理资源
-        if bot_app:
-            await bot_app.stop()
-            await bot_app.shutdown()
+        if bot_initialized:
+            try:
+                await bot_app.stop()
+                logger.info("Bot 已停止")
+            except Exception as e:
+                logger.error(f"停止 bot 时出错: {e}")
 
 # 创建 FastAPI 应用
 app = FastAPI(lifespan=lifespan)
