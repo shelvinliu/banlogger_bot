@@ -2218,14 +2218,13 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(CommandHandler("night", goodnight_greeting_handler))
         bot_app.add_handler(CommandHandler("comfort", comfort_handler))
         bot_app.add_handler(CommandHandler("ub", unban_handler))
-        bot_app.add_handler(CommandHandler("draw", lottery_handler))
         bot_app.add_handler(CommandHandler("daka", daka_handler))
-        bot_app.add_handler(CommandHandler("chat", chat_command_handler))  # 添加聊天命令处理器
-        bot_app.add_handler(CommandHandler("viewsheet", view_sheet_handler))  # 添加新命令
-        bot_app.add_handler(CommandHandler("mystonks", toggle_mystonks_handler))  # 添加新命令
-        bot_app.add_handler(CommandHandler("togglebubble", sheets_storage.toggle_bubble_handler))  # 添加新命令
-        bot_app.add_handler(CommandHandler("ai", gemini_chat_handler))  # 添加 Gemini AI 命令处理器
-        bot_app.add_handler(CommandHandler("aitoggle", toggle_ai_handler))  # 添加AI开关命令处理器
+        bot_app.add_handler(CommandHandler("chat", chat_command_handler))
+        bot_app.add_handler(CommandHandler("viewsheet", view_sheet_handler))
+        bot_app.add_handler(CommandHandler("mystonks", toggle_mystonks_handler))
+        bot_app.add_handler(CommandHandler("togglebubble", sheets_storage.toggle_bubble_handler))
+        bot_app.add_handler(CommandHandler("ai", gemini_chat_handler))
+        bot_app.add_handler(CommandHandler("aitoggle", toggle_ai_handler))
         
         # 添加回调处理器
         bot_app.add_handler(CallbackQueryHandler(ban_reason_handler, pattern="^ban_reason"))
