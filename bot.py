@@ -2207,8 +2207,8 @@ async def toggle_ai_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         
     global AI_ENABLED
     AI_ENABLED = not AI_ENABLED
-    status = "enabled" if AI_ENABLED else "disabled"
-    await update.message.reply_text(f"AI chat is now {status}")
+    status = "已启用" if AI_ENABLED else "已禁用"
+    await update.message.reply_text(f"AI聊天功能现在{status}")
 
 async def gemini_chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """处理AI聊天命令"""
