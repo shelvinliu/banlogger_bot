@@ -520,6 +520,8 @@ USER_DAILY_REMINDERS = {}  # 用于记录用户每日提醒状态
 # 在文件开头的全局变量部分添加
 # 全局变量
 mystonks_reminder_enabled = False  # MyStonks 提醒开关
+# 在文件开头的全局变量部分添加
+ai_enabled = True  # 默认开启AI功能
 
 app = FastAPI()
 
@@ -2635,6 +2637,15 @@ async def view_sheet_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def gemini_chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """处理与Gemini AI的对话"""
+    global ai_enabled
+    
+    if not ai_enabled:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="❌ AI功能当前已关闭"
+        )
+        return
+        
     try:
         # 获取用户消息
         user_message = update.message.text.replace('/ai', '').strip()
@@ -2679,6 +2690,24 @@ async def gemini_chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         except Exception as send_error:
             logger.error(f"发送错误消息失败: {send_error}")
 
+async def toggle_ai_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """处理/ai开关命令，切换AI功能的开启/关闭状态"""
+    global ai_enabled
+    
+    if not await check_admin(update, context):
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="❌ 只有管理员可以使用此命令"
+        )
+        return
+    
+    ai_enabled = not ai_enabled
+    status = "开启" if ai_enabled else "关闭"
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=f"✅ AI功能已{status}"
+    )
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
@@ -2713,6 +2742,7 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(CommandHandler("mystonks", toggle_mystonks_handler))  # 添加新命令
         bot_app.add_handler(CommandHandler("togglebubble", sheets_storage.toggle_bubble_handler))  # 添加新命令
         bot_app.add_handler(CommandHandler("ai", gemini_chat_handler))  # 添加 Gemini AI 命令处理器
+        bot_app.add_handler(CommandHandler("ai开关", toggle_ai_handler))  # 添加AI开关命令处理器
         
         # 添加回调处理器
         bot_app.add_handler(CallbackQueryHandler(ban_reason_handler, pattern="^ban_reason"))
