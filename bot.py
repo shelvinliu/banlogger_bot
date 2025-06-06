@@ -2651,8 +2651,11 @@ async def gemini_chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         # 使用最新的 Gemini 2.5 Pro Preview 模型
         model = genai.GenerativeModel('gemini-2.5-pro-preview-06-05')
         
+        # 添加长度限制提示
+        prompt = f"{user_message}\n\n请用100字以内回答。"
+        
         # 生成回复
-        response = model.generate_content(user_message)
+        response = model.generate_content(prompt)
         
         # 发送回复
         await context.bot.send_message(
