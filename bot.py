@@ -497,10 +497,10 @@ class GoogleSheetsStorage:
                 self.rank_sheet = self.client.open("DailyReminders").add_worksheet(
                     title="排行榜",
                     rows=1000,
-                    cols=4
+                    cols=5
                 )
                 # 添加表头
-                self.rank_sheet.append_row(["排名", "用户名", "积分", "记录时间"])
+                self.rank_sheet.append_row(["排名", "用户名", "积分", "用户ID", "记录时间"])
             
             # 准备数据
             rows = []
@@ -509,6 +509,7 @@ class GoogleSheetsStorage:
                     data["排名"],
                     data["用户名"],
                     data["积分"],
+                    data["用户ID"],
                     data["记录时间"]
                 ])
             
@@ -1551,9 +1552,13 @@ async def export_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     return
                     
                 # 创建 CSV 文件
-                csv_data = "排名,用户名,积分,记录时间\n"
+                csv_data = "排名,用户名,积分,数字ID,记录时间\n"
                 for record in rank_data:
-                    csv_data += f"{record['排名']},{record['用户名']},{record['积分']},{record['记录时间']}\n"
+                    # 生成数字ID（使用当前时间戳+随机数）
+                    import time
+                    import random
+                    numeric_id = f"{int(time.time())}{random.randint(1000, 9999)}"
+                    csv_data += f"{record['排名']},{record['用户名']},{record['积分']},{numeric_id},{record['记录时间']}\n"
                     
                 # 发送文件
                 await update.message.reply_document(
@@ -2244,10 +2249,24 @@ async def rank_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 username = match.group(2).strip()
                 points = match.group(3)
                 
+                # 尝试获取用户的 Telegram ID
+                user_id = "未知"
+                try:
+                    # 从用户名中提取 @ 符号后的部分
+                    if '@' in username:
+                        username = username.split('@')[1]
+                    # 尝试获取用户信息
+                    chat = await context.bot.get_chat(f"@{username}")
+                    if chat and chat.id:
+                        user_id = str(chat.id)
+                except Exception as e:
+                    logger.error(f"获取用户 {username} 的 ID 失败: {e}")
+                
                 rank_data.append({
                     "排名": rank,
                     "用户名": username,
                     "积分": points,
+                    "用户ID": user_id,
                     "记录时间": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
                 })
         
