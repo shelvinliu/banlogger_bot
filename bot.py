@@ -2216,16 +2216,15 @@ async def gemini_chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         
     query = " ".join(context.args)
     await handle_ai_reply(update, context)
-    
+
 async def clear_rank_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """清空排行榜表格数据"""
+    """清空排行榜表格（包括表头）"""
     if not await check_admin(update, context):
         return
     try:
         rank_sheet = sheets_storage.client.open("DailyReminders").worksheet("排行榜")
-        rank_sheet.clear()
-        rank_sheet.append_row(["排名", "用户名", "积分", "用户ID", "记录时间"])
-        await update.message.reply_text("✅ 排行榜数据已清空")
+        rank_sheet.clear()  # 只清空，不再添加表头
+        await update.message.reply_text("✅ 排行榜表格（包括表头）已全部清空")
     except Exception as e:
         logger.error(f"清空排行榜数据时出错: {e}")
         logger.exception(e)
