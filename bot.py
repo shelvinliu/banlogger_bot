@@ -1545,8 +1545,8 @@ async def export_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             try:
                 rank_sheet = sheets_storage.client.open("DailyReminders").worksheet("排行榜")
                 rank_data = rank_sheet.get_all_records()
-                # 新增判断：如果没有数据或没有表头，直接返回
-                if not rank_data or not all(k in rank_data[0] for k in ["排名", "用户名", "积分", "用户ID", "记录时间"]):
+                # 只判断数据是否为空，不再检查表头字段
+                if not rank_data:
                     await update.message.reply_text("暂无排行榜数据")
                     return
                 # 创建 CSV 文件
