@@ -2042,11 +2042,11 @@ async def handle_ai_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         
         # 检查是否需要添加背景信息
         background_info = ""
-        if any(keyword in user_message for keyword in ['mystonks', 'stonks', 'mystonk.org']):
+        if any(keyword in user_message for keyword in ['mystonks', 'stonks', 'mystonks.org']):
             background_info = """
 我是小山炮，MYSTONKS社区的一个机器人。我们的社区因对纳斯达克收割散户的愤怒而生。
 2025年1月23日，纳斯达克推广了名为$STONKS的Meme币，项目方跑路导致投资者巨亏。
-散户们奋起反抗，以起诉纳斯达克为起点，建立了去中心化交易所 mystonk.org，
+散户们奋起反抗，以起诉纳斯达克为起点，建立了去中心化交易所 mystonks.org，
 旨在让交易权利回归用户，并通过空投共享平台收益。
 我们的目标是净化并引领加密行业，最终实现散户的金融胜利。
 """
@@ -2102,6 +2102,12 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     logger.info("AI is disabled")
                     await update.message.reply_text("AI聊天功能当前已禁用。使用 /aitoggle 来启用它。")
                     return
+                
+                # 检查是否包含 "e"
+                if update.message.text.lower() == "e":
+                    logger.info("Message is 'e', skipping AI reply")
+                    return
+                    
                 logger.info("Processing AI reply")
                 # 调用 handle_ai_reply 处理回复
                 await handle_ai_reply(update, context)
