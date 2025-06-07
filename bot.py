@@ -482,6 +482,42 @@ class GoogleSheetsStorage:
             return None
         return f"https://docs.google.com/spreadsheets/d/{self.reminder_sheet.id}"
 
+    async def save_rank_data(self, rank_data: List[Dict[str, str]]) -> bool:
+        """保存排行榜数据到 Google Sheets"""
+        if not self.initialized:
+            await self.initialize()
+            
+        try:
+            # 获取或创建排行榜工作表
+            try:
+                self.rank_sheet = self.client.open("DailyReminders").worksheet("排行榜")
+            except:
+                # 如果工作表不存在，创建一个新的
+                self.rank_sheet = self.client.open("DailyReminders").add_worksheet(
+                    title="排行榜",
+                    rows=1000,
+                    cols=3
+                )
+                # 添加表头
+                self.rank_sheet.append_row(["用户ID", "积分", "记录时间"])
+            
+            # 准备数据
+            rows = []
+            for data in rank_data:
+                rows.append([
+                    data["用户ID"],
+                    data["积分"],
+                    data["记录时间"]
+                ])
+            
+            # 添加数据
+            self.rank_sheet.append_rows(rows)
+            return True
+            
+        except Exception as e:
+            logger.error(f"保存排行榜数据失败: {e}")
+            return False
+
 
 # 配置
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -2152,6 +2188,59 @@ async def gemini_chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = " ".join(context.args)
     await handle_ai_reply(update, context)
 
+async def rank_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """处理排行榜数据"""
+    if not await check_admin(update, context):
+        return
+        
+    try:
+        # 获取消息文本
+        message_text = update.message.text
+        
+        # 检查是否是回复消息
+        if not update.message.reply_to_message:
+            await update.message.reply_text("请回复包含排行榜数据的消息")
+            return
+            
+        # 获取被回复的消息文本
+        rank_text = update.message.reply_to_message.text
+        
+        # 解析排行榜数据
+        rank_data = []
+        for line in rank_text.split('\n'):
+            # 跳过空行
+            if not line.strip():
+                continue
+                
+            # 尝试匹配 @id 和积分
+            import re
+            match = re.search(r'@(\w+).*?(\d+)', line)
+            if match:
+                user_id = match.group(1)
+                points = match.group(2)
+                rank_data.append({
+                    "用户ID": user_id,
+                    "积分": points,
+                    "记录时间": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
+                })
+        
+        if not rank_data:
+            await update.message.reply_text("未找到有效的排行榜数据")
+            return
+            
+        # 保存到 Google Sheets
+        success = await sheets_storage.save_rank_data(rank_data)
+        
+        if success:
+            await update.message.reply_text(f"✅ 成功记录 {len(rank_data)} 条排行榜数据")
+        else:
+            await update.message.reply_text("❌ 保存排行榜数据失败")
+            
+    except Exception as e:
+        logger.error(f"处理排行榜数据时出错: {e}")
+        logger.exception(e)
+        await update.message.reply_text("❌ 处理排行榜数据时出错")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
@@ -2181,6 +2270,7 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(CommandHandler("ub", unban_handler))
         bot_app.add_handler(CommandHandler("ai", gemini_chat_handler))
         bot_app.add_handler(CommandHandler("aitoggle", toggle_ai_handler))
+        bot_app.add_handler(CommandHandler("rank", rank_handler))  # 添加排行榜命令处理器
         
         # 添加回调处理器
         bot_app.add_handler(CallbackQueryHandler(ban_reason_handler, pattern="^ban_reason"))
