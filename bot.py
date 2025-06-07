@@ -497,16 +497,17 @@ class GoogleSheetsStorage:
                 self.rank_sheet = self.client.open("DailyReminders").add_worksheet(
                     title="排行榜",
                     rows=1000,
-                    cols=3
+                    cols=4
                 )
                 # 添加表头
-                self.rank_sheet.append_row(["用户ID", "积分", "记录时间"])
+                self.rank_sheet.append_row(["排名", "用户名", "积分", "记录时间"])
             
             # 准备数据
             rows = []
             for data in rank_data:
                 rows.append([
-                    data["用户ID"],
+                    data["排名"],
+                    data["用户名"],
                     data["积分"],
                     data["记录时间"]
                 ])
@@ -2235,20 +2236,29 @@ async def rank_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             if not line.strip():
                 continue
                 
-            # 尝试匹配 @id 和积分
+            # 尝试匹配格式：序号. 用户名 积分 测试积分
             import re
-            match = re.search(r'@(\w+).*?(\d+)', line)
+            match = re.match(r'(\d+)\.\s+([^\d]+)\s+(\d+)\s+测试积分', line)
             if match:
-                user_id = match.group(1)
-                points = match.group(2)
+                rank = match.group(1)
+                username = match.group(2).strip()
+                points = match.group(3)
+                
                 rank_data.append({
-                    "用户ID": user_id,
+                    "排名": rank,
+                    "用户名": username,
                     "积分": points,
                     "记录时间": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
                 })
         
         if not rank_data:
-            await update.message.reply_text("未找到有效的排行榜数据")
+            # 如果没有找到数据，发送原始文本以便调试
+            await update.message.reply_text(
+                "未找到有效的排行榜数据。\n"
+                "请确保数据格式为：\n"
+                "1. 用户名 100 测试积分\n"
+                "2. 用户名 200 测试积分"
+            )
             return
             
         # 保存到 Google Sheets
