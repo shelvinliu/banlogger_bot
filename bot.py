@@ -1554,7 +1554,8 @@ async def export_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 # 创建 CSV 文件
                 csv_data = "排名,用户名,积分,用户ID,记录时间\n"
                 for record in rank_data:
-                    csv_data += f"{record['排名']},{record['用户名']},{record['积分']},{record['用户ID']},{record['记录时间']}\n"
+                    # 使用 record.get() 方法获取字段值，避免 KeyError
+                    csv_data += f"{record.get('741', '')},{record.get('stonks起飞', '')},{record.get('4', '')},{record.get('未知', '')},{record.get('2025-06-07 20:03:59', '')}\n"
                 await update.message.reply_document(
                     document=BytesIO(csv_data.encode()),
                     filename=f"rank_data_{datetime.now(TIMEZONE).strftime('%Y%m%d_%H%M%S')}.csv"
@@ -2086,26 +2087,21 @@ async def rank_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     """处理排行榜数据"""
     if not await check_admin(update, context):
         return
-        
     try:
         # 获取消息文本
         message_text = update.message.text
-        
         # 检查是否是回复消息
         if not update.message.reply_to_message:
             await update.message.reply_text("请回复包含排行榜数据的消息")
             return
-            
         # 获取被回复的消息文本
         rank_text = update.message.reply_to_message.text
-        
         # 解析排行榜数据
         rank_data = []
         for line in rank_text.split('\n'):
             # 跳过空行
             if not line.strip():
                 continue
-                
             # 尝试匹配格式：序号. 用户名 积分 测试积分
             import re
             match = re.match(r'(\d+)\.\s+([^\d]+)\s+(\d+)\s+测试积分', line)
@@ -2113,20 +2109,8 @@ async def rank_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 rank = match.group(1)
                 username = match.group(2).strip()
                 points = match.group(3)
-                
-                # 尝试获取用户的 Telegram ID
+                # 直接使用"未知"作为用户ID，避免不必要的API调用
                 user_id = "未知"
-                try:
-                    # 从用户名中提取 @ 符号后的部分
-                    if '@' in username:
-                        username = username.split('@')[1]
-                    # 尝试获取用户信息
-                    chat = await context.bot.get_chat(f"@{username}")
-                    if chat and chat.id:
-                        user_id = str(chat.id)
-                except Exception as e:
-                    logger.error(f"获取用户 {username} 的 ID 失败: {e}")
-                
                 rank_data.append({
                     "排名": rank,
                     "用户名": username,
@@ -2134,9 +2118,7 @@ async def rank_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     "用户ID": user_id,
                     "记录时间": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
                 })
-        
         if not rank_data:
-            # 如果没有找到数据，发送原始文本以便调试
             await update.message.reply_text(
                 "未找到有效的排行榜数据。\n"
                 "请确保数据格式为：\n"
@@ -2144,15 +2126,11 @@ async def rank_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 "2. 用户名 200 测试积分"
             )
             return
-            
-        # 保存到 Google Sheets
         success = await sheets_storage.save_rank_data(rank_data)
-        
         if success:
             await update.message.reply_text(f"✅ 成功记录 {len(rank_data)} 条排行榜数据")
         else:
             await update.message.reply_text("❌ 保存排行榜数据失败")
-            
     except Exception as e:
         logger.error(f"处理排行榜数据时出错: {e}")
         logger.exception(e)
