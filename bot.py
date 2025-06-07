@@ -26,6 +26,7 @@ import aiohttp
 import google.generativeai as genai
 from dotenv import load_dotenv
 import uvicorn
+from io import BytesIO
 
 # 加载环境变量
 load_dotenv()
@@ -1504,54 +1505,76 @@ async def search_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.error(f"搜索封禁记录失败: {e}")
 
 async def export_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """处理/export命令，发送Excel文件"""
+    """导出数据"""
     if not await check_admin(update, context):
-        msg = await update.message.reply_text("❌ 只有管理员可以使用此命令")
-        asyncio.create_task(delete_message_later(msg))
         return
-    
-    global ban_records
-    
+        
     try:
-        if not ban_records:
-            msg = await update.message.reply_text("暂无封禁记录可导出")
-            asyncio.create_task(delete_message_later(msg))
-            return
-        
-        # 确保Excel文件是最新的
-        df = pd.DataFrame(ban_records)
-        
-        # 确保所有字段都存在
-        required_columns = [
-            "操作时间", "电报群组名称", "用户ID", 
-            "用户名", "名称", "操作管理", 
-            "理由", "操作"
-        ]
-        
-        # 添加缺失的列
-        for col in required_columns:
-            if col not in df.columns:
-                df[col] = ""
-        
-        # 重新排序列
-        df = df[required_columns]
-        
-        # 保存到Excel
-        df.to_excel(EXCEL_FILE, index=False, engine="openpyxl")
-        
-        # 发送文件
-        with open(EXCEL_FILE, "rb") as file:
-            await update.message.reply_document(
-                document=file,
-                caption="📊 封禁记录导出",
-                filename="ban_records.xlsx"
+        # 检查参数
+        if not context.args:
+            await update.message.reply_text(
+                "请指定要导出的数据类型：\n"
+                "/export ban - 导出封禁记录\n"
+                "/export rank - 导出排行榜数据"
             )
+            return
+            
+        export_type = context.args[0].lower()
         
-        logger.info("封禁记录已导出")
+        if export_type == "ban":
+            # 导出封禁记录
+            if not ban_records:
+                await update.message.reply_text("暂无封禁记录")
+                return
+                
+            # 创建 CSV 文件
+            csv_data = "操作时间,电报群组名称,用户ID,用户名,名称,操作管理,理由,操作\n"
+            for record in ban_records:
+                csv_data += f"{record['操作时间']},{record['电报群组名称']},{record['用户ID']},{record['用户名']},{record['名称']},{record['操作管理']},{record['理由']},{record['操作']}\n"
+                
+            # 发送文件
+            await update.message.reply_document(
+                document=BytesIO(csv_data.encode()),
+                filename=f"ban_records_{datetime.now(TIMEZONE).strftime('%Y%m%d_%H%M%S')}.csv"
+            )
+            
+        elif export_type == "rank":
+            # 导出排行榜数据
+            try:
+                # 获取排行榜数据
+                rank_sheet = sheets_storage.client.open("DailyReminders").worksheet("排行榜")
+                rank_data = rank_sheet.get_all_records()
+                
+                if not rank_data:
+                    await update.message.reply_text("暂无排行榜数据")
+                    return
+                    
+                # 创建 CSV 文件
+                csv_data = "用户ID,积分,记录时间\n"
+                for record in rank_data:
+                    csv_data += f"{record['用户ID']},{record['积分']},{record['记录时间']}\n"
+                    
+                # 发送文件
+                await update.message.reply_document(
+                    document=BytesIO(csv_data.encode()),
+                    filename=f"rank_data_{datetime.now(TIMEZONE).strftime('%Y%m%d_%H%M%S')}.csv"
+                )
+                
+            except Exception as e:
+                logger.error(f"导出排行榜数据失败: {e}")
+                await update.message.reply_text("导出排行榜数据失败")
+                
+        else:
+            await update.message.reply_text(
+                "无效的导出类型。请使用：\n"
+                "/export ban - 导出封禁记录\n"
+                "/export rank - 导出排行榜数据"
+            )
+            
     except Exception as e:
-        error_msg = await update.message.reply_text(f"❌ 导出失败: {str(e)}")
-        asyncio.create_task(delete_message_later(error_msg))
-        logger.error(f"导出封禁记录失败: {e}")
+        logger.error(f"导出数据时出错: {e}")
+        logger.exception(e)
+        await update.message.reply_text("导出数据时出错")
 
 async def morning_greeting_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理早安问候"""
