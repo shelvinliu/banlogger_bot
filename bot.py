@@ -1543,29 +1543,20 @@ async def export_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         elif export_type == "rank":
             # 导出排行榜数据
             try:
-                # 获取排行榜数据
                 rank_sheet = sheets_storage.client.open("DailyReminders").worksheet("排行榜")
                 rank_data = rank_sheet.get_all_records()
-                
-                if not rank_data:
+                # 新增判断：如果没有数据或没有表头，直接返回
+                if not rank_data or not all(k in rank_data[0] for k in ["排名", "用户名", "积分", "用户ID", "记录时间"]):
                     await update.message.reply_text("暂无排行榜数据")
                     return
-                    
                 # 创建 CSV 文件
-                csv_data = "排名,用户名,积分,数字ID,记录时间\n"
+                csv_data = "排名,用户名,积分,用户ID,记录时间\n"
                 for record in rank_data:
-                    # 生成数字ID（使用当前时间戳+随机数）
-                    import time
-                    import random
-                    numeric_id = f"{int(time.time())}{random.randint(1000, 9999)}"
-                    csv_data += f"{record['排名']},{record['用户名']},{record['积分']},{numeric_id},{record['记录时间']}\n"
-                    
-                # 发送文件
+                    csv_data += f"{record['排名']},{record['用户名']},{record['积分']},{record['用户ID']},{record['记录时间']}\n"
                 await update.message.reply_document(
                     document=BytesIO(csv_data.encode()),
                     filename=f"rank_data_{datetime.now(TIMEZONE).strftime('%Y%m%d_%H%M%S')}.csv"
                 )
-                
             except Exception as e:
                 logger.error(f"导出排行榜数据失败: {e}")
                 await update.message.reply_text("导出排行榜数据失败")
@@ -1731,7 +1722,7 @@ async def noon_greeting_handler(update: Update, context: ContextTypes.DEFAULT_TY
         f"🍲 {user.full_name}中午好！今天的饭，机器人给打了满分~",
         f"🥪 {user.full_name}午安！别总想着减肥，午餐还是要吃好~",
         f"🍜 {user.full_name}中午好！面条绕口三圈半，幸福全靠干饭赞~",
-        f"🧀 {user.full_name}午安！吃饭的时候笑一笑，连奶酪都会变甜~",
+        f"🧀 {user.full_name}中午好！吃饭的时候笑一笑，连奶酪都会变甜~",
         f"🍢 {user.full_name}中午好！串串已到位，就等你举箸啦~",
         f"🍇 {user.full_name}午安！饭后来点水果，健康又可爱~",
 
@@ -1899,148 +1890,7 @@ async def goodnight_greeting_handler(update: Update, context: ContextTypes.DEFAU
     logger.info(f"🌙 向 {user.full_name} 发送了晚安问候")
     asyncio.create_task(delete_message_later(sent_message, delay=300))  # 改为5分钟
 
-async def comfort_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """处理安慰命令"""
-    user = update.effective_user
-    COMFORT_MESSAGES = [
-        # 温暖系列
-        f"🤗 {user.full_name}，抱抱你~ 一切都会好起来的",
-        f"💖 {user.full_name}，你并不孤单，我在这里陪着你",
-        f"✨ {user.full_name}，风雨过后总会有彩虹",
-        f"🌱 {user.full_name}，每个低谷都是新的开始",
-        
-        # 鼓励系列
-        f"💪 {user.full_name}，你比想象中更坚强",
-        f"🌟 {user.full_name}，困难只是暂时的，你一定能克服",
-        f"🌻 {user.full_name}，像向日葵一样，永远面向阳光",
-        f"🌈 {user.full_name}，生活就像彩虹，需要经历风雨才能看到美丽",
-        
-        # 治愈系列
-        f"🫂 {user.full_name}，给你一个温暖的拥抱",
-        f"🌙 {user.full_name}，让烦恼随月光消散",
-        f"🌊 {user.full_name}，让心情像海浪一样平静",
-        f"🌿 {user.full_name}，深呼吸，放松心情",
-        
-        # 特别彩蛋
-        f"🎁 {user.full_name}，送你一份勇气大礼包：{random.choice(['坚持','希望','勇气','信心'])}",
-        f"✨ {user.full_name}，你是第{random.randint(1,100)}个需要安慰的小可爱，但你是最特别的"
-    ]
-    
-    # 随机选择一条安慰语
-    reply = random.choice(COMFORT_MESSAGES)
-    
-    # 10%概率附加彩蛋
-    if random.random() < 0.1:
-        emojis = ["✨", "🌟", "💫", "🎁", "💝"]
-        reply += f"\n\n{random.choice(emojis)} 彩蛋：你是今天第{random.randint(1,100)}个需要安慰的小可爱~"
-    
-    sent_message = await update.message.reply_text(reply)
-    logger.info(f"🤗 向 {user.full_name} 发送了安慰消息")
-    asyncio.create_task(delete_message_later(sent_message, delay=300))  # 改为5分钟
 
-
-async def check_and_send_daily_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """检查并发送每日提醒"""
-    global mystonks_reminder_enabled
-    
-    # 如果提醒功能已关闭，直接返回
-    if not mystonks_reminder_enabled:
-        return
-        
-    if not update.message or not update.message.from_user:
-        return
-    
-    # 其余代码保持不变
-    # 检查当前时间是否在凌晨4点后（北京时间）
-    current_time = datetime.now(TIMEZONE)
-    if current_time.hour < 4:
-        return  # 凌晨4点前不发送提醒
-        
-    user_id = update.message.from_user.id
-    current_date = current_time.strftime('%Y-%m-%d')
-    
-    try:
-        # 检查是否已经发送过提醒
-        has_reminder = await sheets_storage.check_daily_reminder(user_id, current_date)
-        if has_reminder:
-            return  # 如果今天已经提醒过，直接返回
-            
-        # 检查是否是命令消息
-        if update.message.text and update.message.text.startswith('/'):
-            return
-            
-        # 检查消息间隔（至少1分钟）
-        last_reminder_time = context.user_data.get('last_reminder_time', 0)
-        current_timestamp = time_module.time()  # 使用重命名后的 time 模块
-        if current_timestamp - last_reminder_time < 60:  # 60秒 = 1分钟
-            return
-            
-        # 随机决定是否发送提醒（20%的概率）
-        if random.random() > 0.2:
-            return
-            
-        # 随机选择一条提醒消息
-        reminder_messages = [
-            "就问一句：你 MyStonks 了吗？\n🔗 https://mystonks.org",
-            "MyStonks 都这么好用了，你还不点？\n🔗 https://mystonks.org",
-            "每天点一点 MyStonks，机会离你近一点～\n🔗 https://mystonks.org",
-            "MyStonks 在等你，不点开它你良心不会痛吗？\n🔗 https://mystonks.org",
-            "忘了用 MyStonks？提醒你一下就好。\n🔗 https://mystonks.org",
-            "喂～MyStonks喊你来看数据了！\n🔗 https://mystonks.org",
-            "喵～今天也要用 MyStonks 才能变有钱哟～\n🔗 https://mystonks.org",
-            "MyStonks：你还没来看我吗？🥺\n🔗 https://mystonks.org",
-            "亲，今天记得来MyStonks看看哦～\n🔗 https://mystonks.org",
-            "喂～你是不是还没打开MyStonks？\n🔗 https://mystonks.org",
-            "用MyStonks的，未来都是赢家！所以你用了吗？\n🔗 https://mystonks.org",
-            "MyStonks 每天用一下，信息不落后。\n🔗 https://mystonks.org",
-            "一天不看 MyStonks，总觉得少点什么。\n🔗 https://mystonks.org",
-            "📈 今天用 MyStonks 了吗？市场信息都在这里！\n🔗 https://mystonks.org",
-            "💡 打开 MyStonks，掌握市场先机！\n🔗 https://mystonks.org",
-            "🚀 用 MyStonks 的人，运气都不会太差～\n🔗 https://mystonks.org",
-            "🎯 每日必看 MyStonks，投资不迷路！\n🔗 https://mystonks.org",
-            "🌟 今天也要记得打开 MyStonks 哦～\n🔗 https://mystonks.org",
-            "MyStonks上线啦，你还没来打卡吗？\n🔗 https://mystonks.org",
-            "投资路上不迷路，MyStonks等你来！\n🔗 https://mystonks.org",
-            "每天一点点MyStonks，财富离你更近~\n🔗 https://mystonks.org",
-            "来MyStonks看看，机会就在指尖！\n🔗 https://mystonks.org",
-            "别忘了打开MyStonks，收获更多惊喜！\n🔗 https://mystonks.org",
-            "MyStonks提醒：今天的行情你看了吗？\n🔗 https://mystonks.org",
-            "MyStonks用起来，投资更自信！\n🔗 https://mystonks.org",
-            "别让行情跑了，快打开MyStonks看看！\n🔗 https://mystonks.org",
-            "MyStonks在手，财富不愁！\n🔗 https://mystonks.org",
-            "你和财富的距离，只差一次打开MyStonks！\n🔗 https://mystonks.org",
-            "快来MyStonks，别让机会溜走！\n🔗 https://mystonks.org",
-            "MyStonks每天一看，赚钱不发愁！\n🔗 https://mystonks.org",
-            "想成为股市高手？先用MyStonks吧！\n🔗 https://mystonks.org",
-            "MyStonks带你抓住每一个行情！\n🔗 https://mystonks.org",
-            "别让投资盲目，MyStonks帮你把关！\n🔗 https://mystonks.org",
-            "MyStonks助你投资路上一路顺风！\n🔗 https://mystonks.org",
-            "每天用MyStonks，财富自动到手！\n🔗 https://mystonks.org",
-            "来MyStonks看看，财富不再是梦！\n🔗 https://mystonks.org",
-            "用MyStonks，做聪明的投资者！\n🔗 https://mystonks.org",
-            "想要赢在起点？先用MyStonks！\n🔗 https://mystonks.org",
-            "MyStonks在手，行情我有！\n🔗 https://mystonks.org",
-            "别犹豫了，MyStonks等你来战！\n🔗 https://mystonks.org",
-            "打开MyStonks，让投资更轻松！\n🔗 https://mystonks.org",
-            "用MyStonks，天天都是赚钱日！\n🔗 https://mystonks.org",
-            "MyStonks帮你捕捉每个赚钱机会！\n🔗 https://mystonks.org",
-            "投资路上，有MyStonks相伴更安心！\n🔗 https://mystonks.org",
-            "别落伍，MyStonks让你快人一步！\n🔗 https://mystonks.org",
-            "MyStonks，让财富触手可及！\n🔗 https://mystonks.org",
-            "财富密码就在MyStonks，快来开启！\n🔗 https://mystonks.org",
-            "MyStonks，一起见证财富奇迹！\n🔗 https://mystonks.org"
-        ]
-        
-        # 发送提醒消息
-        reminder_msg = await update.message.reply_text(random.choice(reminder_messages))
-        # 保存提醒记录
-        await sheets_storage.save_daily_reminder(user_id, current_date)
-        # 更新最后提醒时间
-        context.user_data['last_reminder_time'] = current_timestamp
-        # 1分钟后删除提醒消息
-        asyncio.create_task(delete_message_later(reminder_msg, delay=60))
-    except Exception as e:
-        logger.error(f"发送提醒消息失败: {e}")
 
 async def handle_ai_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """处理对AI消息的回复"""
@@ -2331,7 +2181,6 @@ async def lifespan(app: FastAPI):
         bot_app.add_handler(CommandHandler("morning", morning_greeting_handler))
         bot_app.add_handler(CommandHandler("noon", noon_greeting_handler))
         bot_app.add_handler(CommandHandler("night", goodnight_greeting_handler))
-        bot_app.add_handler(CommandHandler("comfort", comfort_handler))
         bot_app.add_handler(CommandHandler("ub", unban_handler))
         bot_app.add_handler(CommandHandler("ai", gemini_chat_handler))
         bot_app.add_handler(CommandHandler("aitoggle", toggle_ai_handler))
