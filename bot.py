@@ -1371,48 +1371,7 @@ async def handle_reply_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if "reply_flow" in context.user_data:
             del context.user_data["reply_flow"]
 
-async def auto_reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """自动回复关键词消息"""
-    if not update.message or not update.message.text:
-        return
-        
-    text = update.message.text.lower().strip()
-    replies = await sheets_storage.get_keyword_replies()
-    
-    for reply in replies:
-        if reply["关键词"].lower() in text:
-            # 构建回复内容
-            reply_text = reply["回复内容"]
-            
-            # 如果有链接，添加按钮
-            if reply.get("链接"):
-                keyboard = [[InlineKeyboardButton(
-                    reply.get("链接文本", "点击这里"), 
-                    url=reply["链接"]
-                )]]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                
-                # 添加表情和格式化
-                formatted_reply = (
-                    f"✨ {reply_text}\n\n"
-                    f"💡 点击下方按钮了解更多："
-                )
-                
-                sent_message = await update.message.reply_text(
-                    formatted_reply,
-                    reply_markup=reply_markup
-                )
-            else:
-                # 没有链接时也添加一些美化
-                formatted_reply = (
-                    f"✨ {reply_text}\n\n"
-                    f"💫 需要帮助可以随时问我哦~"
-                )
-                sent_message = await update.message.reply_text(formatted_reply)
-            
-            # 设置定时删除消息
-            asyncio.create_task(delete_message_later(sent_message, delay=300))  # 5分钟后删除
-            break
+
 
 async def records_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """处理/records命令"""
@@ -2029,6 +1988,11 @@ async def handle_ai_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # 获取用户消息
         user_message = update.message.text.lower()
         
+        # 如果消息中包含 "e"，不回复
+        if "e" in user_message:
+            logger.info("Message contains 'e', skipping AI reply")
+            return
+        
         # 配置Gemini AI
         genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
         
@@ -2104,8 +2068,8 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     return
                 
                 # 检查是否包含 "e"
-                if update.message.text.lower() == "e":
-                    logger.info("Message is 'e', skipping AI reply")
+                if "e" in update.message.text.lower():
+                    logger.info("Message contains 'e', skipping AI reply")
                     return
                     
                 logger.info("Processing AI reply")
