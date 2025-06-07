@@ -1551,9 +1551,9 @@ async def export_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     return
                     
                 # 创建 CSV 文件
-                csv_data = "用户ID,积分,记录时间\n"
+                csv_data = "排名,用户名,积分,记录时间\n"
                 for record in rank_data:
-                    csv_data += f"{record['用户ID']},{record['积分']},{record['记录时间']}\n"
+                    csv_data += f"{record['排名']},{record['用户名']},{record['积分']},{record['记录时间']}\n"
                     
                 # 发送文件
                 await update.message.reply_document(
