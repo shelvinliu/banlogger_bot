@@ -2189,7 +2189,6 @@ async def lifespan(app: FastAPI):
         
         # 处理所有文本消息 - 调整顺序，确保回复消息优先处理
         bot_app.add_handler(MessageHandler(filters.TEXT & filters.REPLY, message_handler))
-        bot_app.add_handler(MessageHandler(filters.TEXT, auto_reply_handler))
         
         # 尝试从 Google Sheet 加载数据
         try:
